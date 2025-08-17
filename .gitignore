@@ -192,3 +192,5 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+youtube_video_comments_analyzer/training.1600000.processed.noemoticon.csv
+daily_quote_agent/quotes_history.db
