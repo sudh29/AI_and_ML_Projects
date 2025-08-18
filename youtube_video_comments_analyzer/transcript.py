@@ -1,4 +1,3 @@
-# API_KEY = 'AIzaSyBWBa0nddy4Z5iHk6XBen_eXRrVjAJl8kA'
 # from googleapiclient.discovery import build
 
 import re
