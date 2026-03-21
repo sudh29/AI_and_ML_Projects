@@ -2,16 +2,17 @@ import subprocess
 import markdown
 import logging
 
+
 class NotesService:
     def __init__(self):
         self.logger = logging.getLogger(__name__)
 
     def save_to_apple_notes(self, title: str, markdown_content: str) -> bool:
         """Saves generated notes to Apple Notes using AppleScript."""
-        
+
         # Apple Notes prefers HTML for formatting
         html_content = markdown.markdown(markdown_content)
-        
+
         # AppleScript that accepts arguments via standard input to avoid quote-escaping hell
         applescript = """
         on run argv
@@ -25,13 +26,13 @@ class NotesService:
             end tell
         end run
         """
-        
+
         try:
             subprocess.run(
-                ['osascript', '-', title, html_content],
-                input=applescript.encode('utf-8'),
+                ["osascript", "-", title, html_content],
+                input=applescript.encode("utf-8"),
                 check=True,
-                capture_output=True
+                capture_output=True,
             )
             self.logger.info(f"Successfully saved '{title}' to Apple Notes.")
             return True
