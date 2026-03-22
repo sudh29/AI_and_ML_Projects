@@ -1,4 +1,5 @@
 import os
+import logging
 import base64
 from typing import List, Dict
 from google.auth.transport.requests import Request
@@ -8,9 +9,13 @@ from googleapiclient.discovery import build
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
+logger = logging.getLogger(__name__)
+
 
 class GmailService:
-    def __init__(self, credentials_path="credentials.json", token_path="token.json"):
+    def __init__(
+        self, credentials_path="config/credentials.json", token_path="config/token.json"
+    ):
         self.creds = None
         self.token_path = token_path
 
@@ -39,7 +44,7 @@ class GmailService:
                 self.service.users().messages().list(userId="me", q=query).execute()
             )
         except Exception as e:
-            print(f"Error fetching email list: {e}")
+            logger.error(f"Error fetching email list: {e}")
             return []
 
         messages = results.get("messages", [])
@@ -77,7 +82,7 @@ class GmailService:
                     }
                 )
             except Exception as e:
-                print(f"Error processing email {msg.get('id', 'Unknown')}: {e}")
+                logger.error(f"Error processing email {msg.get('id', 'Unknown')}: {e}")
                 continue
 
         return email_data
@@ -110,7 +115,7 @@ class GmailService:
             ).execute()
             return True
         except Exception as e:
-            print(f"Error marking email {msg_id} as read: {e}")
+            logger.error(f"Error marking email {msg_id} as read: {e}")
             return False
 
     def _clean_html(self, html_content: str) -> str:

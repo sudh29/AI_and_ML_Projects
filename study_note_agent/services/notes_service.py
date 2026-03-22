@@ -24,9 +24,10 @@ GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0/me/onenote/pages"
 
 
 class NotesService:
-    def __init__(self, token_path="onenote_token.json"):
+    def __init__(self, token_path="config/onenote_token.json"):
         self.logger = logging.getLogger(__name__)
         self.token_path = token_path
+        self.user_email = "Unknown Microsoft Account"
 
         self.client_id = os.getenv("MS_CLIENT_ID")
         self.authority = "https://login.microsoftonline.com/common"
@@ -109,12 +110,10 @@ class NotesService:
 
         try:
             _post()
-            self.logger.info(
-                f"Successfully saved '{title}' to OneNote. (Microsoft Account: {self.user_email})"
-            )
+            self.logger.info(f"Successfully saved '{title}' to OneNote.")
             return True
         except Exception as e:
             self.logger.error(
-                f"Failed to save {title} to OneNote after retries: {str(e)}"
+                f"Failed to save '{title}' to OneNote after retries: {str(e)}"
             )
             return False

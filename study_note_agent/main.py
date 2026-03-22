@@ -1,15 +1,14 @@
 import argparse
 import logging
+from logging_config import setup_logging
 from dotenv import load_dotenv
 from services.gmail_service import GmailService
 from services.llm_service import LLMService
 from services.notes_service import NotesService
 import constants
 
-# Configure Logging
-logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s"
-)
+setup_logging()
+
 logger = logging.getLogger(__name__)
 
 
@@ -51,18 +50,22 @@ def main():
     emails_to_process = emails[: args.limit]
 
     def process_email(email):
-        logger.info(f"Processing email: {email['subject']}")
+        logger.info(f"Processing email: '{email['subject']}'")
+
+        logger.debug("Generating markdown notes via Gemini...")
 
         generated_notes = llm.generate_notes(email["subject"], email["content"])
         if not generated_notes:
-            logger.error(f"Failed to generate notes for {email['subject']}. Skipping.")
+            logger.error(
+                f"Failed to generate notes for '{email['subject']}'. Skipping."
+            )
             return False
 
-        logger.info(f"Proofreading notes for: {email['subject']}")
+        logger.debug("Proofreading generated notes via Gemini...")
         proofread_notes = llm.proofread_notes(email["content"], generated_notes)
         if not proofread_notes:
-            logger.error(
-                f"Failed to proofread notes for {email['subject']}. Using unproofread version."
+            logger.warning(
+                f"Failed to proofread notes for '{email['subject']}'. Using unproofread version."
             )
             proofread_notes = generated_notes
 
