@@ -1,51 +1,50 @@
 import atexit
+import html
 import logging
 import os
-import socket
+import threading
+from pathlib import Path
 
 import markdown
 import requests
 from msal import PublicClientApplication, SerializableTokenCache
 from tenacity import retry, stop_after_attempt, wait_exponential
-
-# Force IPv4 to prevent MSAL/requests from indefinitely hanging on broken IPv6 networks
-old_getaddrinfo = socket.getaddrinfo
-
-
-def new_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
-    responses = old_getaddrinfo(host, port, family, type, proto, flags)
-    return [r for r in responses if r[0] == socket.AF_INET]
-
-
-socket.getaddrinfo = new_getaddrinfo
+import constants
 
 SCOPES = ["Notes.Create", "Notes.ReadWrite", "User.Read"]
 GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0/me/onenote/pages"
 
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
 
 class NotesService:
-    def __init__(self, token_path="config/onenote_token.json"):
+    def __init__(self, token_path=None):
         self.logger = logging.getLogger(__name__)
-        self.token_path = token_path
-        self.user_email = "Unknown Microsoft Account"
+        if token_path is None:
+            token_path = _PROJECT_ROOT / "config" / "onenote_token.json"
+        self.token_path = Path(token_path)
 
         self.client_id = os.getenv("MS_CLIENT_ID")
         self.authority = "https://login.microsoftonline.com/common"
 
         if not self.client_id:
             raise ValueError(
-                "MS_CLIENT_ID environment variable is missing. You need an Azure AD app registration."
+                "Missing MS_CLIENT_ID environment variable. "
+                "Please add your Microsoft Application ID to your .env file: MS_CLIENT_ID=your_id_here. "
+                "See README.md for instructions on registering an Azure AD application."
             )
 
         self.cache = SerializableTokenCache()
-        if os.path.exists(self.token_path):
-            with open(self.token_path, "r") as f:
-                self.cache.deserialize(f.read())
+        if self.token_path.exists():
+            self.cache.deserialize(self.token_path.read_text())
+
+        # Serializes MSAL cache access, interactive browser login, and disk writes.
+        self._cache_lock = threading.Lock()
 
         def save_cache():
-            if self.cache.has_state_changed:
-                with open(self.token_path, "w") as f:
-                    f.write(self.cache.serialize())
+            with self._cache_lock:
+                if self.cache.has_state_changed:
+                    self.token_path.write_text(self.cache.serialize())
 
         atexit.register(save_cache)
 
@@ -53,38 +52,74 @@ class NotesService:
             self.client_id, authority=self.authority, token_cache=self.cache
         )
 
-        self.access_token = self._get_access_token()
+    def _get_access_token(self) -> str:
+        """Acquires (or refreshes) a valid access token from the MSAL cache."""
+        with self._cache_lock:
+            result = None
+            accounts = self.app.get_accounts()
+            if accounts:
+                result = self.app.acquire_token_silent(SCOPES, account=accounts[0])
 
-    def _get_access_token(self):
-        result = None
-        accounts = self.app.get_accounts()
-        if accounts:
-            result = self.app.acquire_token_silent(SCOPES, account=accounts[0])
+            if not result:
+                self.logger.info(
+                    "No cached OneNote token found. Opening browser for Microsoft login..."
+                )
+                result = self.app.acquire_token_interactive(scopes=SCOPES)
 
         if not result:
-            self.logger.info(
-                "No cached OneNote token found. Opening browser for Microsoft login..."
-            )
-            result = self.app.acquire_token_interactive(scopes=SCOPES)
-
-        if "access_token" in result:
-            return result["access_token"]
-        else:
             raise Exception(
-                f"Failed to authenticate with Microsoft: {result.get('error_description', result)}"
+                "Failed to acquire Microsoft token: authentication returned empty result."
             )
+        if "access_token" not in result:
+            raise Exception(
+                "Failed to authenticate with Microsoft: %s"
+                % result.get("error_description", result)
+            )
+        return result["access_token"]
 
-    def save_note(self, title: str, markdown_content: str, email_id: str = "") -> bool:
+    def save_note(self, title: str, markdown_content: str) -> bool:
         """Saves generated notes to Microsoft OneNote via Graph API."""
 
-        html_content = markdown.markdown(markdown_content)
+        # Validate inputs
+        if not title or not isinstance(title, str):
+            self.logger.error("Invalid title: title must be a non-empty string.")
+            return False
+
+        if not markdown_content or not isinstance(markdown_content, str):
+            self.logger.error(
+                "Invalid content: markdown_content must be a non-empty string."
+            )
+            return False
+
+        if len(markdown_content.strip()) == 0:
+            self.logger.error(
+                "Invalid content: markdown_content cannot be only whitespace."
+            )
+            return False
+
+        if len(markdown_content) > 1_000_000:
+            self.logger.error(
+                "Invalid content: markdown_content exceeds 1MB limit (size: %d bytes).",
+                len(markdown_content),
+            )
+            return False
+
+        try:
+            html_content = markdown.markdown(markdown_content)
+        except Exception as e:
+            self.logger.error(
+                "Failed to convert markdown to HTML for title '%s': %s", title, e
+            )
+            return False
+
+        safe_title = html.escape(title)
 
         # OneNote requires a strict HTML wrapper
         onenote_html = f"""
         <!DOCTYPE html>
         <html>
           <head>
-            <title>{title}</title>
+            <title>{safe_title}</title>
           </head>
           <body>
             {html_content}
@@ -92,8 +127,11 @@ class NotesService:
         </html>
         """
 
+        # Acquire a fresh token on each save to avoid mid-run expiry
+        access_token = self._get_access_token()
+
         headers = {
-            "Authorization": f"Bearer {self.access_token}",
+            "Authorization": f"Bearer {access_token}",
             "Content-Type": "application/xhtml+xml",
         }
 
@@ -103,17 +141,47 @@ class NotesService:
         )
         def _post():
             response = requests.post(
-                GRAPH_ENDPOINT, headers=headers, data=onenote_html.encode("utf-8")
+                GRAPH_ENDPOINT,
+                headers=headers,
+                data=onenote_html.encode("utf-8"),
+                timeout=constants.ONENOTE_REQUEST_TIMEOUT,
             )
             response.raise_for_status()
             return response
 
         try:
-            _post()
-            self.logger.info(f"Successfully saved '{title}' to OneNote.")
+            response = _post()
+            # Safely extract OneNote page URL with multiple fallbacks
+            try:
+                response_json = response.json()
+                page_url = (
+                    response_json.get("links", {})
+                    .get("oneNoteWebUrl", {})
+                    .get("href", "")
+                )
+            except ValueError as json_error:
+                self.logger.debug("Response was not valid JSON: %s", json_error)
+                page_url = ""
+            except Exception as url_error:
+                self.logger.debug(
+                    "Could not extract OneNote URL from response: %s", url_error
+                )
+                page_url = ""
+
+            if page_url:
+                self.logger.info(
+                    "Successfully saved '%s' to OneNote. URL: %s", title, page_url
+                )
+            else:
+                self.logger.info("Successfully saved '%s' to OneNote.", title)
             return True
+        except requests.RequestException as req_error:
+            self.logger.error(
+                "Network error saving '%s' to OneNote: %s", title, req_error
+            )
+            return False
         except Exception as e:
             self.logger.error(
-                f"Failed to save '{title}' to OneNote after retries: {str(e)}"
+                "Failed to save '%s' to OneNote after retries: %s", title, e
             )
             return False

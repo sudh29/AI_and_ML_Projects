@@ -1,14 +1,13 @@
 [project]
 name = "study-note-agent"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI agent that reads Gmail, generates structured study notes via Gemini, and saves them to Microsoft OneNote."
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
     "google-api-python-client>=2.0.0",
     "google-auth-httplib2>=0.2.0",
     "google-auth-oauthlib>=1.2.0",
-    "beautifulsoup4>=4.12.0",
     "google-genai>=0.2.0",
     "markdown>=3.5.0",
     "msal>=1.28.0",
@@ -16,9 +15,13 @@ dependencies = [
     "markdownify>=0.11.6",
     "tenacity>=8.2.3",
     "python-dotenv>=1.0.0",
+]
+
+[dependency-groups]
+dev = [
     "ruff>=0.12.0",
     "pre-commit>=4.2.0",
-    "dotenv>=0.9.9",
+    "pytest>=8.0.0",
 ]
 
 [tool.ruff]
@@ -30,3 +33,7 @@ quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]

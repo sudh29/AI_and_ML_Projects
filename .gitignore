@@ -199,3 +199,4 @@ study_note_agent/config/credentials.json
 study_note_agent/config/token.json
 study_note_agent/config/onenote_token.json
 study_note_agent/config/config.json
+study_note_agent/config/processed_emails.json

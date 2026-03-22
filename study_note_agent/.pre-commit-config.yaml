@@ -1,11 +1,11 @@
-files: ^study_note_agent/
+# Use this file so hooks only touch this project (see README).
+# From repo root: pre-commit run --all-files --config study_note_agent/.pre-commit-config.yaml
 repos:
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    # Ruff version.
-    rev: v0.3.4
+    rev: v0.12.0
     hooks:
-      # Run the linter.
       - id: ruff
-        args: [ --fix ]
-      # Run the formatter.
+        args: [--fix]
+        files: ^study_note_agent/
       - id: ruff-format
+        files: ^study_note_agent/

@@ -1,23 +1,138 @@
 import argparse
+import concurrent.futures
+import json
 import logging
-from logging_config import setup_logging
+import socket
+import sys
+
 from dotenv import load_dotenv
+from logging_config import setup_logging
 from services.gmail_service import GmailService
 from services.llm_service import LLMService
 from services.notes_service import NotesService
+from services.whatsapp_service import WhatsAppService
+from tenacity import retry, stop_after_attempt, wait_exponential
 import constants
+from email_types import FetchedEmail
+
+
+# Circuit breaker for API failures
+class CircuitBreaker:
+    """Simple circuit breaker to stop processing after too many consecutive API failures."""
+
+    def __init__(self, failure_threshold: int = 5):
+        self.failure_threshold = failure_threshold
+        self.failure_count = 0
+        self.is_open = False
+
+    def record_success(self) -> None:
+        """Reset failure count on success."""
+        self.failure_count = 0
+
+    def record_failure(self) -> None:
+        """Increment failure count and open circuit if threshold exceeded."""
+        self.failure_count += 1
+        if self.failure_count >= self.failure_threshold:
+            self.is_open = True
+            logger.error(
+                "Circuit breaker opened: %d consecutive API failures. Stopping processing.",
+                self.failure_count,
+            )
+
+
+# Process-wide: prefer IPv4 only so MSAL/Gmail/Graph do not hang on broken IPv6 routes.
+_original_getaddrinfo = socket.getaddrinfo
+
+
+def _ipv4_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    responses = _original_getaddrinfo(host, port, family, type, proto, flags)
+    return [r for r in responses if r[0] == socket.AF_INET]
+
+
+socket.getaddrinfo = _ipv4_getaddrinfo
 
 setup_logging()
 
 logger = logging.getLogger(__name__)
 
 
+def load_processed_emails() -> set[str]:
+    """Loads the set of already-processed email IDs from storage."""
+    if constants.PROCESSED_EMAILS_FILE.exists():
+        try:
+            data = json.loads(constants.PROCESSED_EMAILS_FILE.read_text())
+            return set(data.get("processed_ids", []))
+        except Exception as e:
+            logger.warning("Failed to load processed emails list: %s", e)
+            return set()
+    return set()
+
+
+def save_processed_emails(processed_ids: set[str]) -> None:
+    """Saves the set of processed email IDs to storage."""
+    try:
+        constants.PROCESSED_EMAILS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        data = {"processed_ids": sorted(list(processed_ids))}
+        constants.PROCESSED_EMAILS_FILE.write_text(json.dumps(data, indent=2))
+    except Exception as e:
+        logger.error("Failed to save processed emails list: %s", e)
+
+
+def process_email(
+    email: FetchedEmail,
+    llm: "LLMService",
+    notes: "NotesService",
+    whatsapp: WhatsAppService,
+) -> str | None:
+    """Processes a single email: generates notes, proofreads, and saves.
+
+    Returns the email ID on success so the caller can mark it as read
+    from the main thread (Google API clients are not thread-safe).
+    """
+    logger.info("Processing email: '%s'", email["subject"])
+
+    logger.debug("Generating markdown notes via Gemini...")
+
+    generated_notes = llm.generate_notes(email["subject"], email["content"])
+    if not generated_notes:
+        logger.error("Failed to generate notes for '%s'. Skipping.", email["subject"])
+        return None
+
+    logger.debug("Proofreading generated notes via Gemini...")
+    proofread_notes = llm.proofread_notes(email["content"], generated_notes)
+    if not proofread_notes:
+        logger.warning(
+            "Failed to proofread notes for '%s'. Using unproofread version.",
+            email["subject"],
+        )
+        proofread_notes = generated_notes
+
+    final_output = f"{proofread_notes}\n\n---\n*Tags: #ai-agent #email-notes*"
+
+    # Save to Microsoft OneNote
+    success = notes.save_note(email["subject"], final_output)
+
+    if success:
+        preview = (
+            proofread_notes[:500]
+            if len(proofread_notes) <= 500
+            else proofread_notes[:499] + "…"
+        )
+        if not whatsapp.notify_note_saved(email["subject"], preview=preview):
+            logger.warning(
+                "WhatsApp notification failed for '%s' (OneNote save succeeded).",
+                email["subject"],
+            )
+        logger.debug("Successfully processed and saved email '%s'.", email["subject"])
+        return email["id"]
+    logger.error("Failed to save notes for email '%s' to OneNote.", email["subject"])
+    return None
+
+
 def main():
     load_dotenv()
 
-    parser = argparse.ArgumentParser(
-        description="AI Agent to turn Emails into Apple Notes"
-    )
+    parser = argparse.ArgumentParser(description="AI Agent to turn Emails into OneNote")
     parser.add_argument(
         "--limit",
         type=int,
@@ -25,6 +140,10 @@ def main():
         help="Maximum number of emails to process in one run",
     )
     args = parser.parse_args()
+
+    # Load previously processed email IDs to avoid reprocessing
+    processed_emails = load_processed_emails()
+    logger.info("Loaded %d previously processed email IDs.", len(processed_emails))
 
     # Build query from constants file target emails
     if constants.TARGET_EMAILS:
@@ -36,56 +155,118 @@ def main():
     else:
         search_query = "is:unread label:learning"
 
-    logger.info(f"Starting agent with query: '{search_query}'")
+    logger.info("Starting agent with query: '%s'", search_query)
 
-    # Initialize Services
+    # Initialize Gmail service (needed to fetch emails)
     gmail = GmailService()
 
     emails = gmail.fetch_emails(query=search_query)
 
-    if emails:
-        llm = LLMService()
-        notes = NotesService()
+    if not emails:
+        logger.info("No unread emails matched the query. Nothing to do.")
+        return
 
-    emails_to_process = emails[: args.limit]
+    # Filter out already-processed emails
+    new_emails = [e for e in emails if e["id"] not in processed_emails]
+    if not new_emails:
+        logger.info(
+            "All %d fetched emails have already been processed. Nothing to do.",
+            len(emails),
+        )
+        return
 
-    def process_email(email):
-        logger.info(f"Processing email: '{email['subject']}'")
+    logger.info(
+        "Found %d new unread emails (filtered from %d total).",
+        len(new_emails),
+        len(emails),
+    )
 
-        logger.debug("Generating markdown notes via Gemini...")
+    # Initialize LLM and OneNote services only if we have emails to process
+    llm = LLMService()
+    notes = NotesService()
+    whatsapp = WhatsAppService()
+    logger.info("All services initialized successfully.")
 
-        generated_notes = llm.generate_notes(email["subject"], email["content"])
-        if not generated_notes:
-            logger.error(
-                f"Failed to generate notes for '{email['subject']}'. Skipping."
-            )
-            return False
+    emails_to_process = new_emails[: args.limit]
 
-        logger.debug("Proofreading generated notes via Gemini...")
-        proofread_notes = llm.proofread_notes(email["content"], generated_notes)
-        if not proofread_notes:
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=constants.MAX_WORKERS_POOL
+    ) as executor:
+        futures = [
+            executor.submit(process_email, email, llm, notes, whatsapp)
+            for email in emails_to_process
+        ]
+
+        # Safely collect results, catching thread exceptions
+        circuit_breaker = CircuitBreaker(failure_threshold=5)
+        results = []
+        for f in concurrent.futures.as_completed(futures):
+            try:
+                result = f.result()
+                if result:
+                    circuit_breaker.record_success()
+                else:
+                    circuit_breaker.record_failure()
+                results.append(result)
+            except Exception as e:
+                logger.error("Exception in email processing thread: %s", e)
+                circuit_breaker.record_failure()
+                results.append(None)
+
+    # Mark successfully processed emails as read from the main thread
+    # (Google API clients are not thread-safe)
+    successful_ids = [msg_id for msg_id in results if msg_id]
+    mark_as_read_failures = []
+
+    @retry(
+        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5)
+    )
+    def retry_mark_as_read(msg_id: str) -> bool:
+        """Retry wrapper for marking email as read with exponential backoff."""
+        return gmail.mark_as_read(msg_id)
+
+    for msg_id in successful_ids:
+        try:
+            if not retry_mark_as_read(msg_id):
+                mark_as_read_failures.append(msg_id)
+                logger.warning(
+                    "Failed to mark email %s as read after retries. It may be reprocessed next run.",
+                    msg_id,
+                )
+        except Exception as e:
+            mark_as_read_failures.append(msg_id)
             logger.warning(
-                f"Failed to proofread notes for '{email['subject']}'. Using unproofread version."
+                "Error marking email %s as read: %s. It may be reprocessed next run.",
+                msg_id,
+                e,
             )
-            proofread_notes = generated_notes
 
-        final_output = f"{proofread_notes}\n\n---\n*Tags: #ai-agent #email-notes*"
+    # Update processed emails set and save to storage
+    processed_emails.update(successful_ids)
+    save_processed_emails(processed_emails)
 
-        # Save to Microsoft OneNote
-        success = notes.save_note(email["subject"], final_output)
+    if mark_as_read_failures:
+        logger.warning(
+            "Job complete. Processed %d emails, but failed to mark %d as read.",
+            len(successful_ids),
+            len(mark_as_read_failures),
+        )
+    else:
+        logger.info(
+            "Job complete. Successfully processed %d new emails.", len(successful_ids)
+        )
 
-        if success:
-            gmail.mark_as_read(email["id"])
-            return True
-        return False
-
-    import concurrent.futures
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-        results = list(executor.map(process_email, emails_to_process))
-
-    processed_count = sum(1 for r in results if r)
-    logger.info(f"Job complete. Processed {processed_count} new emails.")
+    if circuit_breaker.is_open:
+        marked_ok = len(successful_ids) - len(mark_as_read_failures)
+        logger.critical(
+            "Circuit breaker tripped after repeated failures. "
+            "%d successful save(s) written to deduplication storage. "
+            "Gmail mark-as-read: %d succeeded, %d failed.",
+            len(successful_ids),
+            marked_ok,
+            len(mark_as_read_failures),
+        )
+        sys.exit(1)
 
 
 if __name__ == "__main__":

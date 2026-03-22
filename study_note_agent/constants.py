@@ -1,20 +1,27 @@
 # constants.py
-import os
 import json
 import re
+from pathlib import Path
+
+_PROJECT_ROOT = Path(__file__).resolve().parent
 
 
-def _load_config(filepath="config/config.json"):
-    default_config = {"target_emails": [], "max_emails_per_run": 5}
-    if os.path.exists(filepath):
+def _load_config(filepath=None):
+    if filepath is None:
+        filepath = _PROJECT_ROOT / "config" / "config.json"
+    filepath = Path(filepath)
+    default_config = {
+        "target_emails": [],
+        "max_emails_per_run": 5,
+    }
+    if filepath.exists():
         try:
-            with open(filepath, "r") as f:
-                content = f.read()
-                # Flexibly strip JSON comments (//) so you can temporarily disable emails!
-                content = re.sub(r"^\s*//.*$", "", content, flags=re.MULTILINE)
-                # Strip trailing commas that become exposed when the last array item is commented out
-                content = re.sub(r",\s*([\]}])", r"\1", content)
-                return json.loads(content)
+            content = filepath.read_text()
+            # Flexibly strip JSON comments (//) so you can temporarily disable emails!
+            content = re.sub(r"^\s*//.*$", "", content, flags=re.MULTILINE)
+            # Strip trailing commas that become exposed when the last array item is commented out
+            content = re.sub(r",\s*([\]}])", r"\1", content)
+            return json.loads(content)
         except json.JSONDecodeError:
             pass
     return default_config
@@ -27,6 +34,35 @@ TARGET_EMAILS = _config.get("target_emails", [])
 
 # Maximum number of emails to process in one execution
 MAX_EMAILS_PER_RUN = _config.get("max_emails_per_run", 5)
+
+# Concurrency settings
+MAX_WORKERS_POOL = 5
+
+# API timeouts (in seconds)
+ONENOTE_REQUEST_TIMEOUT = 15
+GEMINI_REQUEST_TIMEOUT = 30
+GMAIL_REQUEST_TIMEOUT = 30
+CALLMEBOT_REQUEST_TIMEOUT = 15
+
+# CallMeBot WhatsApp free API message size guard (URL length / provider limits)
+CALLMEBOT_MAX_MESSAGE_CHARS = 4000
+
+# CallMeBot optional defaults from config.json; env CALLMEBOT_* overrides (see WhatsAppService)
+CALLMEBOT_WHATSAPP_URL = _config.get("callmebot_whatsapp_url") or (
+    "https://api.callmebot.com/whatsapp.php"
+)
+CALLMEBOT_PHONE_FALLBACK = (_config.get("callmebot_phone") or "").strip()
+CALLMEBOT_API_KEY_FALLBACK = (_config.get("callmebot_api_key") or "").strip()
+
+# Gmail messages.list pagination (see GmailService.fetch_emails)
+GMAIL_LIST_MAX_RESULTS = 100
+GMAIL_LIST_MAX_PAGES = 10
+
+# LLM settings (loaded from config)
+GEMINI_MODEL = _config.get("gemini_model", "gemini-2.5-flash")
+
+# Deduplication storage
+PROCESSED_EMAILS_FILE = _PROJECT_ROOT / "config" / "processed_emails.json"
 
 PROMPT_GENERATE_NOTES = """
 You are an expert technical summarizer and educator. 
