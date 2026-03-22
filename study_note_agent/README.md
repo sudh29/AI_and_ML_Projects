@@ -4,9 +4,11 @@ An automated, AI-powered agent designed to read your Gmail inbox, filter for key
 
 ## Features
 - **Gmail Integration:** Fetches emails via the official Gmail API with flexible filtering.
-- **Content Cleaning:** Automatically parses plain text and deep HTML payloads, stripping noise.
-- **AI Note Generation & Proofreading:** Uses OpenAI (`gpt-4o`) to summarize the email into a structured, revision-friendly format, followed by a secondary proofreading pass for maximum accuracy.
-- **Apple Notes Sync:** Saves the final, beautifully formatted Notes directly onto your macOS machine using native AppleScript automation.
+- **Smart Semantic Parsing:** Utilizes `markdownify` to intelligently preserve links, bold text, and code blocks from HTML payloads before sending them to the LLM.
+- **AI Note Generation & Proofreading:** Uses Gemini (`gemini-2.5-flash`) to summarize the email into a structured format, followed by a secondary proofreading pass for maximum accuracy.
+- **Robust Resiliency:** Natively handles API rate limits and transient network errors on Gemini and Microsoft Graph with Exponential Backoff (`tenacity`).
+- **Concurrent Processing:** Uses `ThreadPoolExecutor` to process multiple fetched emails simultaneously at warp speed.
+- **Microsoft OneNote Sync:** Saves the final, beautifully formatted notes directly to your Microsoft OneNote account via Graph API, working completely cross-platform on Linux, macOS, and Windows.
 - **Deduplication:** Never processes the same email twice.
 
 ---
@@ -14,20 +16,21 @@ An automated, AI-powered agent designed to read your Gmail inbox, filter for key
 ## 🛠 Setup Guide
 
 ### 1. Prerequisites
-- Python 3.12+
-- macOS (required for Apple Notes integration)
-- An OpenAI API Key
+- Python 3.14+
+- A Microsoft / Azure Dev account
+- An Gemini API Key
 - A Google Cloud Platform (GCP) project
 
 ### 2. Environment Configuration
 Create a `.env` file in the root directory:
 ```bash
-OPENAI_API_KEY=your_openai_api_key_here
+GEMINI_API_KEY=your_gemini_api_key_here
+MS_CLIENT_ID=your_microsoft_client_id_here
 ```
 
 ### 3. Install Dependencies
 ```bash
-uv pip install -e .
+uv sync
 ```
 
 ### 4. Gmail API Setup
@@ -37,6 +40,14 @@ uv pip install -e .
 4. Go to **Credentials** -> Create Credentials -> **OAuth client ID** (Application type: Desktop App).
 5. Download the JSON file and save it as `credentials.json` in the root of this project.
 6. The *first time* you run the script, a browser window will open asking you to log in to your Google account and authorize the app. A `token.json` file will then be created automatically for future runs.
+
+### 5. Microsoft OneNote Setup
+1. Go to the [Microsoft Azure Portal](https://portal.azure.com/#view/Microsoft_AAD_RegisteredApps/ApplicationsListBlade).
+2. Register a new application (Supported account types: "Accounts in any organizational directory and personal Microsoft accounts").
+3. Under **Authentication**, add a **Mobile and desktop applications** platform with the redirect URI `http://localhost`.
+4. Copy your **Application (client) ID**.
+5. Add it to your `.env` file as `MS_CLIENT_ID`.
+6. The *first time* you run the script, a second browser window will open asking you to log in to your Microsoft account. A `onenote_token.json` file will then be created automatically for future runs.
 
 ---
 
@@ -54,7 +65,7 @@ TARGET_EMAILS = [
 Run the agent via the terminal:
 
 ```bash
-python main.py --limit 5
+uv run main.py --limit 5
 ```
 
 ### Arguments:
@@ -64,7 +75,7 @@ python main.py --limit 5
 
 ## 📄 Example Output
 
-If you receive a 500-word newsletter about "Understanding React Server Components", the agent will generate and save an Apple Note that looks like this:
+If you receive a 500-word newsletter about "Understanding React Server Components", the agent will generate and save a OneNote Page that looks like this:
 
 ```markdown
 # React Server Components Deep Dive

@@ -1,13 +1,12 @@
 import os
 import base64
 from typing import List, Dict
-from bs4 import BeautifulSoup
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.readonly"]
+SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
 
 class GmailService:
@@ -29,7 +28,9 @@ class GmailService:
             with open(token_path, "w") as token:
                 token.write(self.creds.to_json())
 
-        self.service = build("gmail", "v1", credentials=self.creds)
+        self.service = build(
+            "gmail", "v1", credentials=self.creds, cache_discovery=False
+        )
 
     def fetch_emails(self, query: str = "is:unread") -> List[Dict]:
         """Fetches emails matching the Gmail search query."""
@@ -113,12 +114,10 @@ class GmailService:
             return False
 
     def _clean_html(self, html_content: str) -> str:
-        """Removes HTML tags and excess whitespace."""
-        soup = BeautifulSoup(html_content, "html.parser")
-        # Remove scripts and styles
-        for script in soup(["script", "style"]):
-            script.extract()
-        text = soup.get_text(separator=" ")
-        lines = (line.strip() for line in text.splitlines())
-        chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-        return "\n".join(chunk for chunk in chunks if chunk)
+        """Converts HTML structurally into Markdown to preserve semantics for the LLM."""
+        import markdownify
+
+        # markdownify smartly drops script/style tags and perfectly retains hyperlinks,
+        # bold, table layouts, and list elements natively in Markdown output.
+        clean_markdown = markdownify.markdownify(html_content, heading_style="ATX")
+        return clean_markdown.strip()

@@ -41,27 +41,23 @@ def main():
 
     # Initialize Services
     gmail = GmailService()
-    llm = LLMService()
-    notes = NotesService()
 
     emails = gmail.fetch_emails(query=search_query)
 
-    processed_count = 0
+    if emails:
+        llm = LLMService()
+        notes = NotesService()
 
-    for email in emails:
-        if processed_count >= args.limit:
-            logger.info("Reached processing limit for this run.")
-            break
+    emails_to_process = emails[: args.limit]
 
+    def process_email(email):
         logger.info(f"Processing email: {email['subject']}")
 
-        # 1. Generate structured notes
         generated_notes = llm.generate_notes(email["subject"], email["content"])
         if not generated_notes:
             logger.error(f"Failed to generate notes for {email['subject']}. Skipping.")
-            continue
+            return False
 
-        # 2. Proofread generated notes
         logger.info(f"Proofreading notes for: {email['subject']}")
         proofread_notes = llm.proofread_notes(email["content"], generated_notes)
         if not proofread_notes:
@@ -70,17 +66,22 @@ def main():
             )
             proofread_notes = generated_notes
 
-        # 3. Add custom tags for easy searching in Apple Notes
         final_output = f"{proofread_notes}\n\n---\n*Tags: #ai-agent #email-notes*"
 
-        # 4. Save to Apple Notes
-        success = notes.save_to_apple_notes(email["subject"], final_output)
+        # Save to Microsoft OneNote
+        success = notes.save_note(email["subject"], final_output)
 
         if success:
-            # Mark email as read via Gmail API so it isn't picked up again
             gmail.mark_as_read(email["id"])
-            processed_count += 1
+            return True
+        return False
 
+    import concurrent.futures
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        results = list(executor.map(process_email, emails_to_process))
+
+    processed_count = sum(1 for r in results if r)
     logger.info(f"Job complete. Processed {processed_count} new emails.")
 
 
