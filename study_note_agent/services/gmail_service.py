@@ -1,16 +1,18 @@
 import base64
 import logging
 from pathlib import Path
-import httplib2
-import markdownify
-import constants
-from email_types import FetchedEmail
+
 from google.auth.transport.requests import Request
 from google.oauth2.credentials import Credentials
 from google_auth_httplib2 import AuthorizedHttp
 from google_auth_oauthlib.flow import InstalledAppFlow
 from googleapiclient.discovery import build
 from googleapiclient.errors import HttpError
+import httplib2
+import markdownify
+
+import constants
+from email_types import FetchedEmail
 
 SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
 
@@ -22,9 +24,9 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 class GmailService:
     def __init__(
         self,
-        credentials_path=None,
-        token_path=None,
-    ):
+        credentials_path: str | Path | None = None,
+        token_path: str | Path | None = None,
+    ) -> None:
         if credentials_path is None:
             credentials_path = _PROJECT_ROOT / "config" / "credentials.json"
         if token_path is None:
@@ -193,6 +195,10 @@ class GmailService:
                     )
         elif "body" in payload and "data" in payload["body"]:
             return base64.urlsafe_b64decode(payload["body"]["data"]).decode("utf-8")
+
+        logger.debug(
+            "Failed to extract body: no valid HTML or plain text part found in payload."
+        )
         return ""
 
     def mark_as_read(self, msg_id: str) -> bool:

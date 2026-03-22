@@ -14,9 +14,10 @@ import logging
 import os
 import threading
 
-import constants
 import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+import constants
 
 logger = logging.getLogger(__name__)
 

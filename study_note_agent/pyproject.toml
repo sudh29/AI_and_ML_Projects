@@ -24,16 +24,50 @@ dev = [
     "pytest>=8.0.0",
 ]
 
+# -------------------------
+# Ruff Configuration
+# -------------------------
 [tool.ruff]
 line-length = 88
 target-version = "py312"
 
+[tool.ruff.lint]
+# Enable lint rules
+select = ["E", "F", "I"]
+
+# Ignore rules (important for clean dev experience)
+ignore = [
+    "E501",  # line too long (handled by formatter)
+]
+
+# Per-file ignores (best practice)
+[tool.ruff.lint.per-file-ignores]
+"__init__.py" = ["F401"]  # allow unused imports for package exports
+"main.py" = ["E402"]  # load_dotenv() must run before downstream imports
+
+# -------------------------
+# Ruff Formatter
+# -------------------------
 [tool.ruff.format]
 quote-style = "double"
 indent-style = "space"
 skip-magic-trailing-comma = false
 line-ending = "auto"
 
+# -------------------------
+# isort (via Ruff)
+# -------------------------
+[tool.ruff.lint.isort]
+known-first-party = ["study_note_agent"]
+combine-as-imports = true
+force-sort-within-sections = true
+
+# -------------------------
+# Pytest
+# -------------------------
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["."]
+filterwarnings = [
+    "ignore::DeprecationWarning:google.genai.*"
+]

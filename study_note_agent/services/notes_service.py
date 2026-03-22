@@ -1,14 +1,14 @@
 import atexit
 import html
 import logging
-import os
-import threading
 from pathlib import Path
+import threading
 
 import markdown
-import requests
 from msal import PublicClientApplication, SerializableTokenCache
+import requests
 from tenacity import retry, stop_after_attempt, wait_exponential
+
 import constants
 
 SCOPES = ["Notes.Create", "Notes.ReadWrite", "User.Read"]
@@ -18,13 +18,13 @@ _PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class NotesService:
-    def __init__(self, token_path=None):
+    def __init__(self, token_path: str | Path | None = None) -> None:
         self.logger = logging.getLogger(__name__)
         if token_path is None:
             token_path = _PROJECT_ROOT / "config" / "onenote_token.json"
         self.token_path = Path(token_path)
 
-        self.client_id = os.getenv("MS_CLIENT_ID")
+        self.client_id = constants.MS_CLIENT_ID
         self.authority = "https://login.microsoftonline.com/common"
 
         if not self.client_id:

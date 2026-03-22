@@ -1,12 +1,12 @@
 import logging
-import os
-import threading
 from pathlib import Path
+import threading
 
-import constants
 from google import genai
 from google.genai import types
 from tenacity import retry, stop_after_attempt, wait_exponential
+
+import constants
 
 logger = logging.getLogger(__name__)
 
@@ -18,8 +18,8 @@ _DEFAULT_SKILL = "default.md"
 
 
 class LLMService:
-    def __init__(self):
-        api_key = os.getenv("GEMINI_API_KEY")
+    def __init__(self) -> None:
+        api_key = constants.GEMINI_API_KEY
         if not api_key:
             raise ValueError(
                 "Missing GEMINI_API_KEY environment variable. "
@@ -58,9 +58,6 @@ class LLMService:
             )
         return response.text
 
-    @retry(
-        stop=stop_after_attempt(3), wait=wait_exponential(multiplier=1, min=1, max=5)
-    )
     def select_skill(self, subject: str, content: str) -> str:
         """Dynamically selects the best markdown persona file based on the email context."""
 
@@ -101,7 +98,11 @@ class LLMService:
         Select the filename of the most appropriate skill.
         """
 
-        try:
+        @retry(
+            stop=stop_after_attempt(3),
+            wait=wait_exponential(multiplier=1, min=1, max=5),
+        )
+        def _fetch_skill():
             with self._client_lock:
                 response = self.client.models.generate_content(
                     model=constants.GEMINI_MODEL,
@@ -118,11 +119,14 @@ class LLMService:
                 else _DEFAULT_SKILL
             )
             if chosen_file not in skill_files:
-                chosen_file = _DEFAULT_SKILL
+                return _DEFAULT_SKILL
             return chosen_file
+
+        try:
+            return _fetch_skill()
         except Exception as e:
             logger.warning(
-                "Error selecting skill dynamically: %s. Defaulting to %s.",
+                "Error selecting skill dynamically after retries: %s. Defaulting to %s.",
                 e,
                 _DEFAULT_SKILL,
             )

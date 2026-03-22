@@ -1,4 +1,4 @@
-from main import CircuitBreaker
+from agent import CircuitBreaker
 
 
 def test_circuit_opens_after_threshold() -> None:

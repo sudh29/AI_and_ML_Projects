@@ -1,7 +1,8 @@
 # constants.py
 import json
-import re
+import os
 from pathlib import Path
+import re
 
 _PROJECT_ROOT = Path(__file__).resolve().parent
 
@@ -34,6 +35,10 @@ TARGET_EMAILS = _config.get("target_emails", [])
 
 # Maximum number of emails to process in one execution
 MAX_EMAILS_PER_RUN = _config.get("max_emails_per_run", 5)
+
+# Environment / Secret Keys
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
+MS_CLIENT_ID = os.getenv("MS_CLIENT_ID", "").strip()
 
 # Concurrency settings
 MAX_WORKERS_POOL = 5
