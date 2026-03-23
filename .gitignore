@@ -195,6 +195,10 @@ cython_debug/
 youtube_video_comments_analyzer/training.1600000.processed.noemoticon.csv
 daily_quote_agent/quotes_history.db
 
-study_note_agent/credentials.json
-study_note_agent/token.json
-study_note_agent/onenote_token.json
+agents/study_note_agent/config/credentials.json
+agents/study_note_agent/config/token.json
+agents/study_note_agent/config/onenote_token.json
+agents/study_note_agent/config/config.json
+agents/study_note_agent/config/processed_emails.json
+
+agents/agent2
