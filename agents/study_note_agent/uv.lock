@@ -913,6 +913,7 @@ dependencies = [
     { name = "msal" },
     { name = "python-dotenv" },
     { name = "requests" },
+    { name = "ruff" },
     { name = "tenacity" },
 ]
 
@@ -934,6 +935,7 @@ requires-dist = [
     { name = "msal", specifier = ">=1.28.0" },
     { name = "python-dotenv", specifier = ">=1.0.0" },
     { name = "requests", specifier = ">=2.31.0" },
+    { name = "ruff", specifier = ">=0.15.7" },
     { name = "tenacity", specifier = ">=8.2.3" },
 ]
 

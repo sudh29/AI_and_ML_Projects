@@ -46,7 +46,7 @@ This limits wasted API quota on repeated failures while preserving successful wo
 ## 🛠 Setup Guide
 
 ### 1. Prerequisites
-- Python 3.12+
+- Python 3.14+
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) (installs dependencies and can manage the virtual environment)
 - A Microsoft / Azure Dev account
 - A Gemini API Key
@@ -57,7 +57,7 @@ This limits wasted API quota on repeated failures while preserving successful wo
 From the `study_note_agent` directory:
 
 ```bash
-uv venv
+uv venv --python 3.14
 ```
 
 Create and use the environment (Linux / macOS):
@@ -153,6 +153,8 @@ Run the agent via the terminal:
 
 ```bash
 uv run main.py --limit 5
+uv run main.py --whatsapp
+
 ```
 
 ### Arguments:

@@ -33,11 +33,17 @@ def main() -> None:
         default=constants.MAX_EMAILS_PER_RUN,
         help="Maximum number of emails to process in one run",
     )
+    parser.add_argument(
+        "--whatsapp",
+        action="store_true",
+        default=False,
+        help="Enable WhatsApp notifications via CallMeBot (disabled by default)",
+    )
     args = parser.parse_args()
 
     from agent import run  # noqa: E402
 
-    run(limit=args.limit)
+    run(limit=args.limit, enable_whatsapp=args.whatsapp)
 
 
 if __name__ == "__main__":

@@ -1,0 +1,13 @@
+target_emails = [
+    "systemdesignone@substack.com"
+]
+max_emails_per_run = 5
+gemini_model = "gemini-2.5-flash"
+callmebot_api_key = "your_api_key_from_the_bot"
+callmebot_phone = "+34123456789"
+scope = [
+    "https://www.googleapis.com/auth/gmail.modify"
+]
+callmebot_whatsapp_url = "https://api.callmebot.com/whatsapp.php"
+graph_end_point = "https://graph.microsoft.com/v1.0/me/onenote/pages"
+microsoft_online = "https://login.microsoftonline.com/common"

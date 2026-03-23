@@ -11,21 +11,16 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 
 import constants
 
-SCOPES = ["Notes.Create", "Notes.ReadWrite", "User.Read"]
-GRAPH_ENDPOINT = "https://graph.microsoft.com/v1.0/me/onenote/pages"
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-
 
 class NotesService:
     def __init__(self, token_path: str | Path | None = None) -> None:
         self.logger = logging.getLogger(__name__)
         if token_path is None:
-            token_path = _PROJECT_ROOT / "config" / "onenote_token.json"
+            token_path = constants.ONENOTE_TOKEN_PATH
         self.token_path = Path(token_path)
 
         self.client_id = constants.MS_CLIENT_ID
-        self.authority = "https://login.microsoftonline.com/common"
+        self.authority = constants.MICROSOFTONLINE
 
         if not self.client_id:
             raise ValueError(
@@ -58,13 +53,17 @@ class NotesService:
             result = None
             accounts = self.app.get_accounts()
             if accounts:
-                result = self.app.acquire_token_silent(SCOPES, account=accounts[0])
+                result = self.app.acquire_token_silent(
+                    constants.ONENOTE_SCOPES, account=accounts[0]
+                )
 
             if not result:
                 self.logger.info(
                     "No cached OneNote token found. Opening browser for Microsoft login..."
                 )
-                result = self.app.acquire_token_interactive(scopes=SCOPES)
+                result = self.app.acquire_token_interactive(
+                    scopes=constants.ONENOTE_SCOPES
+                )
 
         if not result:
             raise Exception(
@@ -141,7 +140,7 @@ class NotesService:
         )
         def _post():
             response = requests.post(
-                GRAPH_ENDPOINT,
+                constants.GRAPH_ENDPOINT,
                 headers=headers,
                 data=onenote_html.encode("utf-8"),
                 timeout=constants.ONENOTE_REQUEST_TIMEOUT,
@@ -169,9 +168,7 @@ class NotesService:
                 page_url = ""
 
             if page_url:
-                self.logger.info(
-                    "Successfully saved '%s' to OneNote. URL: %s", title, page_url
-                )
+                self.logger.info("Successfully saved '%s' to OneNote.", title)
             else:
                 self.logger.info("Successfully saved '%s' to OneNote.", title)
             return True

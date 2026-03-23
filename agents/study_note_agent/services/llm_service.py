@@ -1,6 +1,4 @@
 import logging
-from pathlib import Path
-import threading
 
 from google import genai
 from google.genai import types
@@ -9,12 +7,6 @@ from tenacity import retry, stop_after_attempt, wait_exponential
 import constants
 
 logger = logging.getLogger(__name__)
-
-# Resolve the project root once at import time so that relative skill paths
-# work regardless of the current working directory.
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
-_SKILLS_DIR = _PROJECT_ROOT / "skills"
-_DEFAULT_SKILL = "default.md"
 
 
 class LLMService:
@@ -39,34 +31,31 @@ class LLMService:
                 "Ensure your GEMINI_API_KEY is valid and that you have API access."
             )
 
-        self._client_lock = threading.Lock()
-
     @retry(
         stop=stop_after_attempt(4), wait=wait_exponential(multiplier=1, min=2, max=10)
     )
     def _call_gemini(
         self, system_instruction: str, contents: str, temperature: float
     ) -> str:
-        with self._client_lock:
-            response = self.client.models.generate_content(
-                model=constants.GEMINI_MODEL,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    system_instruction=system_instruction,
-                    temperature=temperature,
-                ),
-            )
+        response = self.client.models.generate_content(
+            model=constants.GEMINI_MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                system_instruction=system_instruction,
+                temperature=temperature,
+            ),
+        )
         return response.text
 
     def select_skill(self, subject: str, content: str) -> str:
         """Dynamically selects the best markdown persona file based on the email context."""
 
-        if not _SKILLS_DIR.exists():
-            return _DEFAULT_SKILL
+        if not constants.SKILLS_DIR.exists():
+            return constants.DEFAULT_SKILL
 
-        skill_files = [f.name for f in _SKILLS_DIR.glob("*.md")]
+        skill_files = [f.name for f in constants.SKILLS_DIR.glob("*.md")]
         if not skill_files:
-            return _DEFAULT_SKILL
+            return constants.DEFAULT_SKILL
 
         # Build the structured output schema as a plain dict to avoid
         # re-creating a Pydantic model on every invocation.
@@ -77,7 +66,7 @@ class LLMService:
                     "type": "string",
                     "description": (
                         f"The exact filename of the skill to use from this list: "
-                        f"{skill_files}. If none match well, return '{_DEFAULT_SKILL}'."
+                        f"{skill_files}. If none match well, return '{constants.DEFAULT_SKILL}'."
                     ),
                 }
             },
@@ -103,23 +92,34 @@ class LLMService:
             wait=wait_exponential(multiplier=1, min=1, max=5),
         )
         def _fetch_skill():
-            with self._client_lock:
-                response = self.client.models.generate_content(
-                    model=constants.GEMINI_MODEL,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        response_schema=skill_schema,
-                        temperature=0.0,
-                    ),
-                )
-            chosen_file = (
-                response.parsed.get("skill_filename", _DEFAULT_SKILL)
-                if getattr(response, "parsed", None)
-                else _DEFAULT_SKILL
+            response = self.client.models.generate_content(
+                model=constants.GEMINI_MODEL,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=skill_schema,
+                    temperature=0.0,
+                ),
             )
-            if chosen_file not in skill_files:
-                return _DEFAULT_SKILL
+
+            chosen_file = None
+            if getattr(response, "parsed", None):
+                if isinstance(response.parsed, dict):
+                    chosen_file = response.parsed.get("skill_filename")
+                else:
+                    chosen_file = getattr(response.parsed, "skill_filename", None)
+
+            if not chosen_file and getattr(response, "text", None):
+                import json
+
+                try:
+                    data = json.loads(response.text)
+                    chosen_file = data.get("skill_filename")
+                except json.JSONDecodeError:
+                    pass
+
+            if not chosen_file or chosen_file not in skill_files:
+                return constants.DEFAULT_SKILL
             return chosen_file
 
         try:
@@ -128,16 +128,16 @@ class LLMService:
             logger.warning(
                 "Error selecting skill dynamically after retries: %s. Defaulting to %s.",
                 e,
-                _DEFAULT_SKILL,
+                constants.DEFAULT_SKILL,
             )
-            return _DEFAULT_SKILL
+            return constants.DEFAULT_SKILL
 
     def generate_notes(self, subject: str, content: str) -> str | None:
         """Transforms raw email text into structured learning notes."""
         chosen_skill = self.select_skill(subject, content)
         logger.info("Dynamically routed '%s' to persona: %s", subject, chosen_skill)
 
-        skill_path = _SKILLS_DIR / chosen_skill
+        skill_path = constants.SKILLS_DIR / chosen_skill
         try:
             system_prompt = skill_path.read_text(encoding="utf-8")
         except FileNotFoundError:
@@ -168,7 +168,18 @@ class LLMService:
                 0.3,
             )
         except Exception as e:
-            logger.error("Error generating notes with Gemini after retries: %s", e)
+            inner_error = e
+            # Unpack tenacity RetryError to find the actual ClientError
+            if hasattr(e, "last_attempt") and getattr(
+                e.last_attempt, "exception", None
+            ):
+                inner_err = e.last_attempt.exception()
+                if inner_err:
+                    inner_error = inner_err
+            logger.error(
+                "Error generating notes with Gemini after retries. Inner error: %s",
+                inner_error,
+            )
             return None
 
     def proofread_notes(
@@ -193,5 +204,15 @@ class LLMService:
                 0.2,
             )
         except Exception as e:
-            logger.error("Error proofreading notes with Gemini after retries: %s", e)
+            inner_error = e
+            if hasattr(e, "last_attempt") and getattr(
+                e.last_attempt, "exception", None
+            ):
+                inner_err = e.last_attempt.exception()
+                if inner_err:
+                    inner_error = inner_err
+            logger.error(
+                "Error proofreading notes with Gemini after retries. Inner error: %s",
+                inner_error,
+            )
             return None

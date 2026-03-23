@@ -14,11 +14,9 @@ import markdownify
 import constants
 from email_types import FetchedEmail
 
-SCOPES = ["https://www.googleapis.com/auth/gmail.modify"]
+SCOPES = constants.SCOPE
 
 logger = logging.getLogger(__name__)
-
-_PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 class GmailService:
@@ -28,9 +26,9 @@ class GmailService:
         token_path: str | Path | None = None,
     ) -> None:
         if credentials_path is None:
-            credentials_path = _PROJECT_ROOT / "config" / "credentials.json"
+            credentials_path = constants.CREDENTIALS_PATH
         if token_path is None:
-            token_path = _PROJECT_ROOT / "config" / "token.json"
+            token_path = constants.TOKEN_PATH
         credentials_path = Path(credentials_path)
         token_path = Path(token_path)
         self.creds = None

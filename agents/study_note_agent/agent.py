@@ -1,8 +1,10 @@
 """Core agent workflow: fetch emails, generate notes, save, and reconcile."""
 
+from __future__ import annotations
+
 import concurrent.futures
-import json
 import logging
+import sqlite3
 import sys
 
 from tenacity import (
@@ -50,26 +52,39 @@ class CircuitBreaker:
 # ------------------------------------------------------------------
 # Deduplication helpers
 # ------------------------------------------------------------------
+def _init_db() -> None:
+    constants.PROCESSED_EMAILS_DB.parent.mkdir(parents=True, exist_ok=True)
+    with sqlite3.connect(constants.PROCESSED_EMAILS_DB) as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS processed_emails (
+                email_id TEXT PRIMARY KEY,
+                processed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+            """
+        )
+
+
 def load_processed_emails() -> set[str]:
-    """Load the set of already-processed email IDs from storage."""
-    if constants.PROCESSED_EMAILS_FILE.exists():
-        try:
-            data = json.loads(constants.PROCESSED_EMAILS_FILE.read_text())
-            return set(data.get("processed_ids", []))
-        except Exception as e:
-            logger.warning("Failed to load processed emails list: %s", e)
-            return set()
-    return set()
+    """Load the set of already-processed email IDs from SQLite storage."""
+    _init_db()
+    with sqlite3.connect(constants.PROCESSED_EMAILS_DB) as conn:
+        cursor = conn.execute("SELECT email_id FROM processed_emails")
+        return {row[0] for row in cursor.fetchall()}
 
 
-def save_processed_emails(processed_ids: set[str]) -> None:
-    """Save the set of processed email IDs to storage."""
+def save_processed_emails(new_ids: list[str] | set[str]) -> None:
+    """Save a set/list of processed email IDs to SQLite storage."""
+    if not new_ids:
+        return
     try:
-        constants.PROCESSED_EMAILS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        data = {"processed_ids": sorted(list(processed_ids))}
-        constants.PROCESSED_EMAILS_FILE.write_text(json.dumps(data, indent=2))
+        with sqlite3.connect(constants.PROCESSED_EMAILS_DB) as conn:
+            conn.executemany(
+                "INSERT OR IGNORE INTO processed_emails (email_id) VALUES (?)",
+                [(email_id,) for email_id in new_ids],
+            )
     except Exception as e:
-        logger.error("Failed to save processed emails list: %s", e)
+        logger.error("Failed to save processed emails to DB: %s", e)
 
 
 # ------------------------------------------------------------------
@@ -79,7 +94,7 @@ def process_email(
     email: FetchedEmail,
     llm: LLMService,
     notes: NotesService,
-    whatsapp: WhatsAppService,
+    whatsapp: WhatsAppService | None = None,
 ) -> str | None:
     """Process one email: generate notes, proofread, save.
 
@@ -113,16 +128,17 @@ def process_email(
     success = notes.save_note(email["subject"], final_output)
 
     if success:
-        preview = (
-            proofread_notes[:500]
-            if len(proofread_notes) <= 500
-            else proofread_notes[:499] + "…"
-        )
-        if not whatsapp.notify_note_saved(email["subject"], preview=preview):
-            logger.warning(
-                "WhatsApp notification failed for '%s' (OneNote save succeeded).",
-                email["subject"],
+        if whatsapp is not None:
+            preview = (
+                proofread_notes[:500]
+                if len(proofread_notes) <= 500
+                else proofread_notes[:499] + "…"
             )
+            if not whatsapp.notify_note_saved(email["subject"], preview=preview):
+                logger.warning(
+                    "WhatsApp notification failed for '%s' (OneNote save succeeded).",
+                    email["subject"],
+                )
         logger.debug(
             "Successfully processed and saved email '%s'.",
             email["subject"],
@@ -139,12 +155,16 @@ def process_email(
 # ------------------------------------------------------------------
 # Main workflow
 # ------------------------------------------------------------------
-def run(*, limit: int = constants.MAX_EMAILS_PER_RUN) -> None:
+def run(
+    *,
+    limit: int = constants.MAX_EMAILS_PER_RUN,
+    enable_whatsapp: bool = False,
+) -> None:
     """Execute the full agent workflow.
 
     1. Build Gmail search query from config.
     2. Fetch and deduplicate emails.
-    3. Process emails concurrently (LLM + OneNote + WhatsApp).
+    3. Process emails concurrently (LLM + OneNote + optionally WhatsApp).
     4. Mark processed emails as read and persist state.
     """
     # Load previously processed email IDs
@@ -191,7 +211,12 @@ def run(*, limit: int = constants.MAX_EMAILS_PER_RUN) -> None:
     # Initialize services only when needed
     llm = LLMService()
     notes = NotesService()
-    whatsapp = WhatsAppService()
+    whatsapp: WhatsAppService | None = None
+    if enable_whatsapp:
+        whatsapp = WhatsAppService()
+        logger.info("WhatsApp notifications enabled.")
+    else:
+        logger.info("WhatsApp notifications disabled (use --whatsapp to enable).")
     logger.info("All services initialized successfully.")
 
     emails_to_process = new_emails[:limit]
@@ -247,7 +272,7 @@ def run(*, limit: int = constants.MAX_EMAILS_PER_RUN) -> None:
 
     # ---- persist state ----
     processed_emails.update(successful_ids)
-    save_processed_emails(processed_emails)
+    save_processed_emails(successful_ids)
 
     if mark_as_read_failures:
         logger.warning(
