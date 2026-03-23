@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 import threading
 
+import jinja2
 import markdown
 from msal import PublicClientApplication, SerializableTokenCache
 import requests
@@ -114,17 +115,18 @@ class NotesService:
         safe_title = html.escape(title)
 
         # OneNote requires a strict HTML wrapper
-        onenote_html = f"""
-        <!DOCTYPE html>
-        <html>
-          <head>
-            <title>{safe_title}</title>
-          </head>
-          <body>
-            {html_content}
-          </body>
-        </html>
-        """
+        template = jinja2.Template(
+            "<!DOCTYPE html>\n"
+            "<html>\n"
+            "  <head>\n"
+            "    <title>{{ title }}</title>\n"
+            "  </head>\n"
+            "  <body>\n"
+            "    {{ content }}\n"
+            "  </body>\n"
+            "</html>"
+        )
+        onenote_html = template.render(title=safe_title, content=html_content)
 
         # Acquire a fresh token on each save to avoid mid-run expiry
         access_token = self._get_access_token()
