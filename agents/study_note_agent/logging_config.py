@@ -1,15 +1,46 @@
-import logging
+import logging.config
 
 
 def setup_logging():
     """Configures project-wide logging format and suppresses noisy third-party libraries."""
+    logging_config = {
+        "version": 1,
+        "disable_existing_loggers": False,
+        "formatters": {
+            "standard": {
+                "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+            },
+        },
+        "handlers": {
+            "default": {
+                "level": "WARNING",
+                "formatter": "standard",
+                "class": "logging.StreamHandler",
+                "stream": "ext://sys.stdout",
+            },
+        },
+        "loggers": {
+            "": {  # root logger
+                "handlers": ["default"],
+                "level": "WARNING",
+                "propagate": True,
+            },
+            "__main__": {
+                "level": "INFO",
+                "handlers": ["default"],
+                "propagate": False,
+            },
+            "agent": {
+                "level": "INFO",
+                "handlers": ["default"],
+                "propagate": False,
+            },
+            "services": {
+                "level": "INFO",
+                "handlers": ["default"],
+                "propagate": False,
+            },
+        },
+    }
 
-    # Force the global root logger to WARNING so NO rogue third-party libraries can leak INFO logs.
-    logging.basicConfig(
-        level=logging.WARNING,
-        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-    )
-
-    # Explicitly re-enable INFO logs strictly for our own internal application modules
-    logging.getLogger("__main__").setLevel(logging.INFO)
-    logging.getLogger("services").setLevel(logging.INFO)
+    logging.config.dictConfig(logging_config)

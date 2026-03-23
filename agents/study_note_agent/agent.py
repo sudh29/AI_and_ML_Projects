@@ -54,7 +54,8 @@ class CircuitBreaker:
 # ------------------------------------------------------------------
 def _init_db() -> None:
     constants.PROCESSED_EMAILS_DB.parent.mkdir(parents=True, exist_ok=True)
-    with sqlite3.connect(constants.PROCESSED_EMAILS_DB) as conn:
+    with sqlite3.connect(constants.PROCESSED_EMAILS_DB, timeout=20.0) as conn:
+        conn.execute("PRAGMA journal_mode=WAL;")
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS processed_emails (
@@ -68,7 +69,7 @@ def _init_db() -> None:
 def load_processed_emails() -> set[str]:
     """Load the set of already-processed email IDs from SQLite storage."""
     _init_db()
-    with sqlite3.connect(constants.PROCESSED_EMAILS_DB) as conn:
+    with sqlite3.connect(constants.PROCESSED_EMAILS_DB, timeout=20.0) as conn:
         cursor = conn.execute("SELECT email_id FROM processed_emails")
         return {row[0] for row in cursor.fetchall()}
 
@@ -78,7 +79,7 @@ def save_processed_emails(new_ids: list[str] | set[str]) -> None:
     if not new_ids:
         return
     try:
-        with sqlite3.connect(constants.PROCESSED_EMAILS_DB) as conn:
+        with sqlite3.connect(constants.PROCESSED_EMAILS_DB, timeout=20.0) as conn:
             conn.executemany(
                 "INSERT OR IGNORE INTO processed_emails (email_id) VALUES (?)",
                 [(email_id,) for email_id in new_ids],
