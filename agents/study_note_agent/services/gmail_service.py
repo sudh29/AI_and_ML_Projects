@@ -120,7 +120,7 @@ class GmailService:
             "Found %d messages matching query (%d list page(s)).", len(messages), pages
         )
 
-        email_data = []
+        email_data: list[FetchedEmail] = []
         for msg in messages:
             try:
                 msg_id = msg["id"]
@@ -214,5 +214,7 @@ class GmailService:
         """Converts HTML structurally into Markdown to preserve semantics for the LLM."""
         # markdownify smartly drops script/style tags and perfectly retains hyperlinks,
         # bold, table layouts, and list elements natively in Markdown output.
-        clean_markdown = markdownify.markdownify(html_content, heading_style="ATX")
+        clean_markdown = markdownify.markdownify(
+            html_content, heading_style="ATX", strip=["img", "script", "style"]
+        )
         return clean_markdown.strip()

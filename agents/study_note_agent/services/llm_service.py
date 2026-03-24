@@ -1,4 +1,5 @@
 import logging
+import threading
 
 from google import genai
 from google.genai import types
@@ -25,6 +26,7 @@ class LLMService:
                     timeout=int(constants.GEMINI_REQUEST_TIMEOUT * 1000),
                 ),
             )
+            self._lock = threading.Lock()
         except Exception as e:
             raise Exception(
                 f"Failed to initialize Gemini client: {e}. "
@@ -37,14 +39,15 @@ class LLMService:
     def _call_gemini(
         self, system_instruction: str, contents: str, temperature: float
     ) -> str:
-        response = self.client.models.generate_content(
-            model=constants.GEMINI_MODEL,
-            contents=contents,
-            config=types.GenerateContentConfig(
-                system_instruction=system_instruction,
-                temperature=temperature,
-            ),
-        )
+        with self._lock:
+            response = self.client.models.generate_content(
+                model=constants.GEMINI_MODEL,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_instruction,
+                    temperature=temperature,
+                ),
+            )
         return response.text
 
     def select_skill(self, subject: str, content: str) -> str:
@@ -92,15 +95,16 @@ class LLMService:
             wait=wait_exponential(multiplier=1, min=1, max=5),
         )
         def _fetch_skill():
-            response = self.client.models.generate_content(
-                model=constants.GEMINI_MODEL,
-                contents=prompt,
-                config=types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=skill_schema,
-                    temperature=0.0,
-                ),
-            )
+            with self._lock:
+                response = self.client.models.generate_content(
+                    model=constants.GEMINI_MODEL,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=skill_schema,
+                        temperature=0.0,
+                    ),
+                )
 
             chosen_file = None
             if getattr(response, "parsed", None):

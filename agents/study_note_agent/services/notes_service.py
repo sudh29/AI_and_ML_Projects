@@ -4,6 +4,7 @@ import logging
 from pathlib import Path
 import threading
 
+import bleach
 import jinja2
 import markdown
 from msal import PublicClientApplication, SerializableTokenCache
@@ -40,7 +41,9 @@ class NotesService:
         def save_cache():
             with self._cache_lock:
                 if self.cache.has_state_changed:
-                    self.token_path.write_text(self.cache.serialize())
+                    data = self.cache.serialize()
+                    if isinstance(data, str):
+                        self.token_path.write_text(data)
 
         atexit.register(save_cache)
 
@@ -111,6 +114,43 @@ class NotesService:
                 "Failed to convert markdown to HTML for title '%s': %s", title, e
             )
             return False
+
+        allowed_tags = list(bleach.sanitizer.ALLOWED_TAGS) + [
+            "h1",
+            "h2",
+            "h3",
+            "h4",
+            "h5",
+            "h6",
+            "p",
+            "div",
+            "span",
+            "br",
+            "hr",
+            "pre",
+            "code",
+            "table",
+            "thead",
+            "tbody",
+            "tr",
+            "th",
+            "td",
+            "img",
+            "blockquote",
+            "del",
+        ]
+        allowed_attrs = bleach.sanitizer.ALLOWED_ATTRIBUTES.copy()
+        allowed_attrs.update(
+            {
+                "*": ["class", "id"],
+                "img": ["src", "alt", "title"],
+                "a": ["href", "title", "rel"],
+            }
+        )
+
+        html_content = bleach.clean(
+            html_content, tags=allowed_tags, attributes=allowed_attrs, strip=True
+        )
 
         safe_title = html.escape(title)
 
