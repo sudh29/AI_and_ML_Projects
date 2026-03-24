@@ -1,3 +1,5 @@
+from urllib.parse import parse_qs, urlparse
+
 from youtube_transcript_api import (
     NoTranscriptFound,
     TranscriptsDisabled,
@@ -11,10 +13,17 @@ def get_transcript(video_url: str, language: str = "en") -> str:
     Get transcript from a YouTube video URL or ID.
     """
     # Extract video ID from URL if full URL is passed
-    if "watch?v=" in video_url:
-        video_id = video_url.split("watch?v=")[-1].split("&")[0]
-    elif "youtu.be/" in video_url:
-        video_id = video_url.split("youtu.be/")[-1].split("?")[0]
+    parsed = urlparse(video_url)
+    if parsed.hostname in ("youtu.be", "www.youtu.be"):
+        video_id = parsed.path.lstrip("/")
+    elif (
+        parsed.hostname in ("youtube.com", "www.youtube.com")
+        and parsed.path == "/watch"
+    ):
+        query = parse_qs(parsed.query)
+        video_id = query.get("v", [None])[0]
+        if not video_id:
+            video_id = video_url  # fallback
     else:
         video_id = video_url  # assume it's already an ID
 

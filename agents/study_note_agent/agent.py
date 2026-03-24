@@ -96,6 +96,7 @@ def process_email(
     llm: LLMService,
     notes: NotesService,
     whatsapp: WhatsAppService | None = None,
+    circuit_breaker: CircuitBreaker | None = None,
 ) -> str | None:
     """Process one email: generate notes, proofread, save.
 
@@ -103,6 +104,10 @@ def process_email(
     as read from the main thread (Google API clients are not
     thread-safe).
     """
+    if circuit_breaker and circuit_breaker.is_open:
+        logger.warning("Circuit breaker is open. Skipping '%s'.", email["subject"])
+        return None
+
     logger.info("Processing email: '%s'", email["subject"])
 
     logger.debug("Generating markdown notes via Gemini...")
@@ -223,15 +228,15 @@ def run(
     emails_to_process = new_emails[:limit]
 
     # ---- concurrent processing ----
+    circuit_breaker = CircuitBreaker(failure_threshold=5)
     with concurrent.futures.ThreadPoolExecutor(
         max_workers=constants.MAX_WORKERS_POOL
     ) as executor:
         futures = [
-            executor.submit(process_email, email, llm, notes, whatsapp)
+            executor.submit(process_email, email, llm, notes, whatsapp, circuit_breaker)
             for email in emails_to_process
         ]
 
-        circuit_breaker = CircuitBreaker(failure_threshold=5)
         results: list[str | None] = []
         for f in concurrent.futures.as_completed(futures):
             try:
