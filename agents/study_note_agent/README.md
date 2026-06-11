@@ -152,7 +152,7 @@ Configuration of target emails lives in `config/config.json`. Edit the `target_e
 Run the separate commands via the terminal:
 
 ```bash
-uv run main.py fetch-raw --limit 5
+uv run main.py fetch-raw
 uv run main.py raw-to-md
 uv run main.py whatsapp --message "Study Note Agent test"
 uv run main.py youtube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
@@ -162,7 +162,7 @@ uv run main.py full-workflow --limit 5 --whatsapp
 ```
 
 ### Arguments:
-- `fetch-raw`: Fetches matching Gmail messages and saves local `.txt` files plus `.json` metadata under `rawtext/`. It does not mark emails as read.
+- `fetch-raw`: Fetches all matching unread Gmail messages by default, saves local `.txt` files plus `.json` metadata under `rawtext/`, then marks only the verified saved Gmail message IDs as read. Use `--limit 5` to cap a run or `--no-mark-read` to leave messages unread.
 - `raw-to-md`: Converts files from `rawtext/` into local markdown notes under `mdnotes/`. Use `--overwrite` to regenerate existing notes.
 - `whatsapp`: Sends a custom message through CallMeBot using the configured WhatsApp credentials.
 - `youtube`: Saves a YouTube transcript into `rawtext/` so it can be converted later with `raw-to-md`.

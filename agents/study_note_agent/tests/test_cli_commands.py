@@ -2,9 +2,10 @@ import json
 from unittest.mock import patch
 
 import main
+from services.local_file_service import build_gmail_stem
 
 
-def test_fetch_raw_creates_text_and_metadata_without_marking_read(tmp_path):
+def test_fetch_raw_with_limit_creates_text_metadata_and_marks_read(tmp_path):
     with patch("services.gmail_service.GmailService") as mock_gmail_cls:
         gmail = mock_gmail_cls.return_value
         gmail.fetch_emails.return_value = [
@@ -36,6 +37,65 @@ def test_fetch_raw_creates_text_and_metadata_without_marking_read(tmp_path):
         "source_id": "id1",
         "subject": "Subject One",
     }
+    gmail.mark_as_read.assert_called_once_with("id1")
+
+
+def test_fetch_raw_without_limit_saves_and_marks_all_fetched_emails(tmp_path):
+    with patch("services.gmail_service.GmailService") as mock_gmail_cls:
+        gmail = mock_gmail_cls.return_value
+        gmail.mark_as_read.return_value = True
+        gmail.fetch_emails.return_value = [
+            {
+                "id": "id1",
+                "subject": "Subject One",
+                "sender": "sender@example.com",
+                "content": "body one",
+            },
+            {
+                "id": "id2",
+                "subject": "Subject Two",
+                "sender": "sender@example.com",
+                "content": "body two",
+            },
+        ]
+
+        code = main.main(
+            ["fetch-raw", "--raw-dir", str(tmp_path), "--mark-read-delay", "0"]
+        )
+
+    assert code == 0
+    assert sorted(path.name for path in tmp_path.glob("*.txt")) == [
+        "gmail_id1_Subject-One.txt",
+        "gmail_id2_Subject-Two.txt",
+    ]
+    assert [call.args[0] for call in gmail.mark_as_read.call_args_list] == [
+        "id1",
+        "id2",
+    ]
+
+
+def test_fetch_raw_does_not_mark_when_existing_metadata_mismatches(tmp_path):
+    email = {
+        "id": "id1",
+        "subject": "Subject One",
+        "sender": "sender@example.com",
+        "content": "body one",
+    }
+    existing_raw = tmp_path / f"{build_gmail_stem(email)}.txt"
+    existing_raw.write_text("old body", encoding="utf-8")
+    existing_raw.with_suffix(".json").write_text(
+        json.dumps({"source": "gmail", "source_id": "other-id"}),
+        encoding="utf-8",
+    )
+
+    with patch("services.gmail_service.GmailService") as mock_gmail_cls:
+        gmail = mock_gmail_cls.return_value
+        gmail.fetch_emails.return_value = [email]
+
+        code = main.main(["fetch-raw", "--raw-dir", str(tmp_path)])
+
+    assert code == 1
+    assert existing_raw.read_text(encoding="utf-8") == "old body"
     gmail.mark_as_read.assert_not_called()
 
 

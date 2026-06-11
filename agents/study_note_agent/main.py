@@ -6,6 +6,7 @@ import argparse
 import logging
 from pathlib import Path
 import socket
+import time
 from typing import Sequence
 
 from dotenv import load_dotenv
@@ -36,25 +37,46 @@ def _prefer_ipv4() -> None:
     socket._study_note_agent_ipv4_patch = True
 
 
+def _positive_int(value: str) -> int:
+    parsed = int(value)
+    if parsed < 1:
+        raise argparse.ArgumentTypeError("must be at least 1")
+    return parsed
+
+
+def _non_negative_float(value: str) -> float:
+    parsed = float(value)
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("must be 0 or greater")
+    return parsed
+
+
 def _handle_fetch_raw(args: argparse.Namespace) -> int:
     from agent import build_gmail_search_query
     from services.gmail_service import GmailService
-    from services.local_file_service import build_gmail_stem, write_raw_text
+    from services.local_file_service import (
+        build_gmail_stem,
+        raw_file_matches_source,
+        write_raw_text,
+    )
 
     query = args.query or build_gmail_search_query()
     gmail = GmailService()
     emails = gmail.fetch_emails(query=query)
-    emails_to_save = emails[: args.limit]
+    emails_to_save = emails if args.limit is None else emails[: args.limit]
 
     written = 0
     skipped = 0
+    unsafe_to_mark = 0
+    saved_email_ids: list[str] = []
     for email in emails_to_save:
+        email_id = email["id"]
         result = write_raw_text(
             build_gmail_stem(email),
             email["content"],
             {
                 "source": "gmail",
-                "source_id": email["id"],
+                "source_id": email_id,
                 "subject": email["subject"],
                 "sender": email["sender"],
             },
@@ -68,13 +90,44 @@ def _handle_fetch_raw(args: argparse.Namespace) -> int:
             written += 1
             logger.info("Saved raw email text: %s", result.path)
 
+        if result.path.exists() and raw_file_matches_source(result.path, email_id):
+            saved_email_ids.append(email_id)
+        else:
+            unsafe_to_mark += 1
+            logger.error(
+                "Not marking email %s as read because local metadata could not be "
+                "verified for %s.",
+                email_id,
+                result.path,
+            )
+
+    marked_read = 0
+    mark_read_failed = 0
+    if args.mark_read:
+        for index, email_id in enumerate(saved_email_ids):
+            if index > 0 and args.mark_read_delay > 0:
+                time.sleep(args.mark_read_delay)
+
+            if gmail.mark_as_read(email_id):
+                marked_read += 1
+                logger.info("Marked Gmail message as read: %s", email_id)
+            else:
+                mark_read_failed += 1
+                logger.error("Failed to mark Gmail message as read: %s", email_id)
+    else:
+        logger.info("Mark-as-read disabled by --no-mark-read.")
+
     logger.info(
-        "Raw email capture complete: %d written, %d skipped, %d fetched.",
+        "Raw email capture complete: %d written, %d skipped, %d fetched, "
+        "%d marked read, %d mark-read failed, %d unsafe to mark.",
         written,
         skipped,
         len(emails),
+        marked_read,
+        mark_read_failed,
+        unsafe_to_mark,
     )
-    return 0
+    return 1 if mark_read_failed or unsafe_to_mark else 0
 
 
 def _handle_raw_to_md(args: argparse.Namespace) -> int:
@@ -224,9 +277,9 @@ def _build_parser() -> argparse.ArgumentParser:
     )
     fetch_raw.add_argument(
         "--limit",
-        type=int,
-        default=constants.MAX_EMAILS_PER_RUN,
-        help="Maximum number of emails to fetch and save.",
+        type=_positive_int,
+        default=None,
+        help="Maximum number of emails to fetch and save. Defaults to all fetched unread emails.",
     )
     fetch_raw.add_argument(
         "--raw-dir",
@@ -244,6 +297,19 @@ def _build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Overwrite existing raw text and metadata files.",
     )
+    fetch_raw.add_argument(
+        "--no-mark-read",
+        action="store_false",
+        dest="mark_read",
+        help="Save raw text without marking Gmail messages as read.",
+    )
+    fetch_raw.add_argument(
+        "--mark-read-delay",
+        type=_non_negative_float,
+        default=0.25,
+        help="Seconds to wait between Gmail mark-as-read calls.",
+    )
+    fetch_raw.set_defaults(mark_read=True)
     fetch_raw.set_defaults(func=_handle_fetch_raw)
 
     raw_to_md = subparsers.add_parser(

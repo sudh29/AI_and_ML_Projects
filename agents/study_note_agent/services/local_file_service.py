@@ -75,6 +75,11 @@ def read_raw_metadata(raw_path: str | Path) -> dict[str, Any]:
     return data if isinstance(data, dict) else {}
 
 
+def raw_file_matches_source(raw_path: str | Path, source_id: str) -> bool:
+    metadata = read_raw_metadata(raw_path)
+    return metadata.get("source_id") == source_id
+
+
 def title_for_raw(raw_path: str | Path, metadata: Mapping[str, Any] | None = None) -> str:
     metadata = metadata or read_raw_metadata(raw_path)
     title = metadata.get("subject") or metadata.get("title")
