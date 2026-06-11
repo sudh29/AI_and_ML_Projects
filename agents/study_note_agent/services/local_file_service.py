@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime
 import json
 from pathlib import Path
 import re
@@ -57,7 +58,8 @@ def iter_raw_text_files(raw_dir: str | Path | None = None) -> list[Path]:
     source_dir = Path(raw_dir) if raw_dir is not None else constants.RAWTEXT_DIR
     if not source_dir.exists():
         return []
-    return sorted(source_dir.glob("*.txt"))
+    # Search recursively in all subdirectories (organized by sender)
+    return sorted(source_dir.glob("**/*.txt"))
 
 
 def read_raw_text(raw_path: str | Path) -> str:
@@ -110,6 +112,86 @@ def write_raw_text(
         encoding="utf-8",
     )
     return WriteResult(raw_path, skipped=False, metadata_path=metadata_path)
+
+
+def is_markdown_already_created(raw_path: str | Path) -> bool:
+    """Check if markdown has already been created for this raw file.
+    
+    Checks the metadata JSON file to see if markdown_created flag is set.
+    """
+    metadata = read_raw_metadata(raw_path)
+    return metadata.get("markdown_created", False) is True
+
+
+def has_markdown_conversion_failed(raw_path: str | Path) -> bool:
+    """Check if markdown conversion has been attempted and failed for this raw file.
+    
+    Checks the metadata JSON file to see if conversion_failed flag is set.
+    """
+    metadata = read_raw_metadata(raw_path)
+    return metadata.get("conversion_failed", False) is True
+
+
+def mark_conversion_failed(raw_path: str | Path, error_message: str = "") -> None:
+    """Mark the raw file as having a failed conversion attempt.
+    
+    Adds conversion_failed flag and error info to the metadata to prevent retries.
+    """
+    raw_path = Path(raw_path)
+    metadata_path = metadata_path_for_raw(raw_path)
+    
+    if not metadata_path.exists():
+        return
+    
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+    
+    # Update metadata with conversion failure info
+    metadata["conversion_failed"] = True
+    metadata["conversion_failed_timestamp"] = datetime.now().isoformat()
+    if error_message:
+        metadata["conversion_error"] = error_message[:200]  # Limit error message length
+    
+    try:
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2, sort_keys=True)
+            f.write("\n")
+    except OSError:
+        pass
+
+
+def update_metadata_with_markdown(
+    raw_path: str | Path, md_path: str | Path
+) -> None:
+    """Update the raw file's JSON metadata to record that markdown was created.
+    
+    Adds markdown_created flag and markdown_path to the metadata.
+    """
+    raw_path = Path(raw_path)
+    metadata_path = metadata_path_for_raw(raw_path)
+    
+    if not metadata_path.exists():
+        return
+    
+    try:
+        with open(metadata_path, "r", encoding="utf-8") as f:
+            metadata = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return
+    
+    # Update metadata with markdown creation info
+    metadata["markdown_created"] = True
+    metadata["markdown_path"] = str(Path(md_path).relative_to(Path(md_path).parent.parent))
+    
+    try:
+        with open(metadata_path, "w", encoding="utf-8") as f:
+            json.dump(metadata, f, indent=2, sort_keys=True)
+            f.write("\n")
+    except OSError:
+        pass
 
 
 def write_markdown(

@@ -171,8 +171,8 @@ uv run main.py full-workflow --limit 5 --whatsapp
 ```
 
 ### Arguments:
-- `fetch-raw`: Fetches all matching unread Gmail messages by default, saves local `.txt` files plus `.json` metadata under `rawtext/`, then marks only the verified saved Gmail message IDs as read. **Automatically organizes rawtext files into sender-based subdirectories** (e.g., `rawtext/Neo Kim/`, `rawtext/Sandeep Swadia/`). Use `--limit 5` to cap a run or `--no-mark-read` to leave messages unread.
-- `raw-to-md`: Converts files from `rawtext/` into local markdown notes under `mdnotes/`. **Automatically organizes markdown files into sender-based subdirectories** matching the rawtext structure. **Tracks all conversions** in `config/conversion_tracker.json` for auditing and deduplication. By default it processes all eligible files; use `--limit 2` for a smaller batch or `--overwrite` to regenerate existing notes.
+- `fetch-raw`: Fetches all matching unread Gmail messages by default, saves local `.txt` files plus `.json` metadata under `rawtext/`, then marks only the verified saved Gmail message IDs as read. **Automatically organizes rawtext files into sender-based subdirectories** (e.g., `rawtext/Neo Kim/`, `rawtext/Sandeep Swadia/`). Logs show which email is currently being processed with sender name and subject. Use `--limit 5` to cap a run or `--no-mark-read` to leave messages unread.
+- `raw-to-md`: Converts files from `rawtext/` into local markdown notes under `mdnotes/`. **Automatically searches all sender subdirectories** and organizes markdown files into matching sender-based subdirectories. **Tracks all conversions** in `config/conversion_tracker.json` for auditing and deduplication. Logs show progress of each file being converted including sender name and title. By default it processes all eligible files; use `--limit 2` for a smaller batch or `--overwrite` to regenerate existing notes.
 - `whatsapp`: Sends a custom message through CallMeBot using the configured WhatsApp credentials.
 - `youtube`: Saves a YouTube transcript into `rawtext/` so it can be converted later with `raw-to-md`.
 - `telegram`: Placeholder command; Telegram sending is not implemented yet.

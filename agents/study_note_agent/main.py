@@ -168,11 +168,15 @@ def _handle_fetch_raw(args: argparse.Namespace) -> int:
 def _handle_raw_to_md(args: argparse.Namespace) -> int:
     from services.llm_service import LLMService
     from services.local_file_service import (
+        has_markdown_conversion_failed,
+        is_markdown_already_created,
         iter_raw_text_files,
         markdown_path_for_stem,
+        mark_conversion_failed,
         read_raw_metadata,
         read_raw_text,
         title_for_raw,
+        update_metadata_with_markdown,
         write_markdown,
     )
     from services.organize_service import organize_mdnotes_files
@@ -181,23 +185,53 @@ def _handle_raw_to_md(args: argparse.Namespace) -> int:
     # Initialize conversion tracker
     tracker = ConversionTracker(constants.CONVERSION_TRACKER_FILE)
 
+    logger.info("Searching for raw text files in: %s", args.raw_dir)
     raw_files = iter_raw_text_files(args.raw_dir)
     if not raw_files:
-        logger.info("No raw text files found in %s.", args.raw_dir)
+        logger.warning("No raw text files found in %s or its subdirectories.", args.raw_dir)
         return 0
 
+    logger.info("Found %d raw text file(s) total.", len(raw_files))
+
     pending: list[Path] = []
-    skipped = 0
+    skipped_exist = 0
+    skipped_converted = 0
+    skipped_failed = 0
     for raw_path in raw_files:
+        # Check if already converted (from metadata)
+        if is_markdown_already_created(raw_path):
+            skipped_converted += 1
+            logger.debug("Skipped already converted: %s", raw_path.name)
+            continue
+        
+        # Check if conversion was previously attempted and failed
+        if has_markdown_conversion_failed(raw_path):
+            skipped_failed += 1
+            logger.debug("Skipped previous conversion failure: %s", raw_path.name)
+            continue
+        
+        # Check if markdown file exists on disk
         md_path = markdown_path_for_stem(raw_path.stem, args.md_dir)
         if md_path.exists() and not args.overwrite:
-            skipped += 1
-            logger.info("Skipped existing markdown note: %s", md_path)
-        else:
-            pending.append(raw_path)
+            skipped_exist += 1
+            logger.debug("Skipped existing markdown note: %s", md_path)
+            continue
+        
+        pending.append(raw_path)
 
-    if not pending:
-        logger.info("No raw text files needed markdown generation.")
+    if pending:
+        logger.info(
+            "Eligible for conversion: %d file(s) (skipped: %d converted, %d failed, %d exist)",
+            len(pending),
+            skipped_converted,
+            skipped_failed,
+            skipped_exist,
+        )
+    else:
+        logger.info(
+            "No files need conversion (all %d files already processed or marked as failed).",
+            skipped_converted + skipped_failed + skipped_exist,
+        )
         return 0
 
     if args.limit is not None:
@@ -208,24 +242,38 @@ def _handle_raw_to_md(args: argparse.Namespace) -> int:
     written = 0
     failed = 0
 
-    for raw_path in pending:
+    for index, raw_path in enumerate(pending, 1):
+        metadata = read_raw_metadata(raw_path)
+        title = title_for_raw(raw_path, metadata)
+        sender = metadata.get("sender", "Unknown Sender")
+        
+        logger.info(
+            "[%d/%d] Processing: '%s' from %s",
+            index,
+            len(pending),
+            title,
+            sender,
+        )
+        
         content = read_raw_text(raw_path)
         if not content.strip():
             failed += 1
-            logger.warning("Skipping empty raw text file: %s", raw_path)
+            logger.warning("  ✗ Skipping empty raw text file: %s", raw_path)
+            mark_conversion_failed(raw_path, "Empty content")
             continue
 
-        metadata = read_raw_metadata(raw_path)
-        title = title_for_raw(raw_path, metadata)
+        logger.info("  Generating markdown notes...")
         generated_notes = llm.generate_notes(title, content)
         if not generated_notes:
             failed += 1
-            logger.error("Failed to generate markdown notes for %s.", raw_path)
+            logger.error("  ✗ Failed to generate markdown notes for %s.", raw_path)
+            mark_conversion_failed(raw_path, "LLM generation failed")
             continue
 
+        logger.info("  Proofreading generated notes...")
         proofread_notes = llm.proofread_notes(content, generated_notes)
         if not proofread_notes:
-            logger.warning("Proofread failed for %s. Using generated notes.", raw_path)
+            logger.warning("  Proofread failed. Using generated notes.")
             proofread_notes = generated_notes
 
         final_output = f"{proofread_notes}\n\n---\n*Tags: #ai-agent #local-notes*"
@@ -236,29 +284,32 @@ def _handle_raw_to_md(args: argparse.Namespace) -> int:
             overwrite=args.overwrite,
         )
         if result.skipped:
-            skipped += 1
-            logger.info("Skipped existing markdown note: %s", result.path)
+            skipped_exist += 1
+            logger.info("  ✓ Markdown note already exists: %s", result.path)
         else:
             written += 1
-            logger.info("Saved markdown note: %s", result.path)
+            logger.info("  ✓ Saved markdown note: %s", result.path)
+            # Update raw file metadata to mark as converted
+            update_metadata_with_markdown(raw_path, result.path)
             # Track the conversion
             tracker.mark_converted(raw_path.stem, result.path)
 
     logger.info(
         "Markdown generation complete: %d written, %d skipped, %d failed.",
         written,
-        skipped,
+        skipped_exist + skipped_converted + skipped_failed,
         failed,
     )
 
     # Organize markdown files by sender
-    logger.info("Organizing markdown notes by sender...")
-    org_stats = organize_mdnotes_files(args.md_dir, args.raw_dir)
-    logger.info(
-        "Markdown organization complete: %d senders created, %d files moved.",
-        org_stats["senders_created"],
-        org_stats["files_moved"],
-    )
+    if written > 0:
+        logger.info("Organizing markdown notes by sender...")
+        org_stats = organize_mdnotes_files(args.md_dir, args.raw_dir)
+        logger.info(
+            "Markdown organization complete: %d senders created, %d files moved.",
+            org_stats["senders_created"],
+            org_stats["files_moved"],
+        )
 
     # Log conversion statistics
     conv_stats = tracker.get_conversion_stats()
