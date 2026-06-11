@@ -41,6 +41,14 @@ This limits wasted API quota on repeated failures while preserving successful wo
 - OneNote saves run in parallel; token acquisition uses a single lock so interactive Microsoft login cannot run from multiple threads at once
 - Deduplication file updates happen on the main thread after workers finish
 
+### File Organization
+The agent automatically organizes your email notes by sender to make them easier to navigate:
+- **After `fetch-raw`:** Raw text files are organized into sender-based subdirectories (e.g., `rawtext/Neo Kim/`, `rawtext/Sandeep Swadia/`)
+- **After `raw-to-md`:** Generated markdown notes are organized into matching sender-based subdirectories under `mdnotes/`
+- **Conversion tracking:** A JSON file (`config/conversion_tracker.json`) tracks which raw files have been converted to markdown, including timestamps and file paths for complete audit trails
+
+This structure makes it easy to find all notes from a specific sender and prevents accidentally re-processing files.
+
 ---
 
 ## 🛠 Setup Guide
@@ -163,8 +171,8 @@ uv run main.py full-workflow --limit 5 --whatsapp
 ```
 
 ### Arguments:
-- `fetch-raw`: Fetches all matching unread Gmail messages by default, saves local `.txt` files plus `.json` metadata under `rawtext/`, then marks only the verified saved Gmail message IDs as read. Use `--limit 5` to cap a run or `--no-mark-read` to leave messages unread.
-- `raw-to-md`: Converts files from `rawtext/` into local markdown notes under `mdnotes/`. By default it processes all eligible files; use `--limit 2` for a smaller batch or `--overwrite` to regenerate existing notes.
+- `fetch-raw`: Fetches all matching unread Gmail messages by default, saves local `.txt` files plus `.json` metadata under `rawtext/`, then marks only the verified saved Gmail message IDs as read. **Automatically organizes rawtext files into sender-based subdirectories** (e.g., `rawtext/Neo Kim/`, `rawtext/Sandeep Swadia/`). Use `--limit 5` to cap a run or `--no-mark-read` to leave messages unread.
+- `raw-to-md`: Converts files from `rawtext/` into local markdown notes under `mdnotes/`. **Automatically organizes markdown files into sender-based subdirectories** matching the rawtext structure. **Tracks all conversions** in `config/conversion_tracker.json` for auditing and deduplication. By default it processes all eligible files; use `--limit 2` for a smaller batch or `--overwrite` to regenerate existing notes.
 - `whatsapp`: Sends a custom message through CallMeBot using the configured WhatsApp credentials.
 - `youtube`: Saves a YouTube transcript into `rawtext/` so it can be converted later with `raw-to-md`.
 - `telegram`: Placeholder command; Telegram sending is not implemented yet.

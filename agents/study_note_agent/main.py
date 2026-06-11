@@ -59,43 +59,66 @@ def _handle_fetch_raw(args: argparse.Namespace) -> int:
         raw_file_matches_source,
         write_raw_text,
     )
+    from services.organize_service import organize_rawtext_files
 
     query = args.query or build_gmail_search_query()
+    logger.info("Fetching unread Gmail messages with query: %s", query)
     gmail = GmailService()
     emails = gmail.fetch_emails(query=query)
+    
+    if not emails:
+        logger.warning("No unread emails found matching the query.")
+        return 0
+    
+    logger.info("Found %d unread email(s) to process.", len(emails))
+    
     emails_to_save = emails if args.limit is None else emails[: args.limit]
+    if args.limit is not None and len(emails_to_save) < len(emails):
+        logger.info("Limiting to %d email(s) due to --limit flag.", args.limit)
 
     written = 0
     skipped = 0
     unsafe_to_mark = 0
     saved_email_ids: list[str] = []
-    for email in emails_to_save:
+    
+    for index, email in enumerate(emails_to_save, 1):
         email_id = email["id"]
+        subject = email["subject"]
+        sender = email["sender"]
+        
+        logger.info(
+            "[%d/%d] Processing email: Subject='%s' | From='%s'",
+            index,
+            len(emails_to_save),
+            subject,
+            sender,
+        )
+        
         result = write_raw_text(
             build_gmail_stem(email),
             email["content"],
             {
                 "source": "gmail",
                 "source_id": email_id,
-                "subject": email["subject"],
-                "sender": email["sender"],
+                "subject": subject,
+                "sender": sender,
             },
             raw_dir=args.raw_dir,
             overwrite=args.overwrite,
         )
         if result.skipped:
             skipped += 1
-            logger.info("Skipped existing raw text: %s", result.path)
+            logger.info("  ✓ Skipped existing raw text: %s", result.path)
         else:
             written += 1
-            logger.info("Saved raw email text: %s", result.path)
+            logger.info("  ✓ Saved raw email text: %s", result.path)
 
         if result.path.exists() and raw_file_matches_source(result.path, email_id):
             saved_email_ids.append(email_id)
         else:
             unsafe_to_mark += 1
             logger.error(
-                "Not marking email %s as read because local metadata could not be "
+                "  ✗ Not marking email %s as read because local metadata could not be "
                 "verified for %s.",
                 email_id,
                 result.path,
@@ -104,19 +127,21 @@ def _handle_fetch_raw(args: argparse.Namespace) -> int:
     marked_read = 0
     mark_read_failed = 0
     if args.mark_read:
-        for index, email_id in enumerate(saved_email_ids):
-            if index > 0 and args.mark_read_delay > 0:
+        logger.info("Marking %d email(s) as read in Gmail...", len(saved_email_ids))
+        for index, email_id in enumerate(saved_email_ids, 1):
+            if index > 1 and args.mark_read_delay > 0:
                 time.sleep(args.mark_read_delay)
 
             if gmail.mark_as_read(email_id):
                 marked_read += 1
-                logger.info("Marked Gmail message as read: %s", email_id)
+                logger.info("  [%d/%d] ✓ Marked as read: %s", index, len(saved_email_ids), email_id)
             else:
                 mark_read_failed += 1
-                logger.error("Failed to mark Gmail message as read: %s", email_id)
+                logger.error("  [%d/%d] ✗ Failed to mark as read: %s", index, len(saved_email_ids), email_id)
     else:
         logger.info("Mark-as-read disabled by --no-mark-read.")
 
+    # Log summary before organization
     logger.info(
         "Raw email capture complete: %d written, %d skipped, %d fetched, "
         "%d marked read, %d mark-read failed, %d unsafe to mark.",
@@ -127,6 +152,16 @@ def _handle_fetch_raw(args: argparse.Namespace) -> int:
         mark_read_failed,
         unsafe_to_mark,
     )
+
+    # Organize rawtext files by sender
+    logger.info("Organizing rawtext files by sender...")
+    org_stats = organize_rawtext_files(args.raw_dir)
+    logger.info(
+        "Rawtext organization complete: %d senders created, %d files moved.",
+        org_stats["senders_created"],
+        org_stats["files_moved"],
+    )
+
     return 1 if mark_read_failed or unsafe_to_mark else 0
 
 
@@ -140,6 +175,11 @@ def _handle_raw_to_md(args: argparse.Namespace) -> int:
         title_for_raw,
         write_markdown,
     )
+    from services.organize_service import organize_mdnotes_files
+    from services.conversion_tracker import ConversionTracker
+
+    # Initialize conversion tracker
+    tracker = ConversionTracker(constants.CONVERSION_TRACKER_FILE)
 
     raw_files = iter_raw_text_files(args.raw_dir)
     if not raw_files:
@@ -201,6 +241,8 @@ def _handle_raw_to_md(args: argparse.Namespace) -> int:
         else:
             written += 1
             logger.info("Saved markdown note: %s", result.path)
+            # Track the conversion
+            tracker.mark_converted(raw_path.stem, result.path)
 
     logger.info(
         "Markdown generation complete: %d written, %d skipped, %d failed.",
@@ -208,6 +250,24 @@ def _handle_raw_to_md(args: argparse.Namespace) -> int:
         skipped,
         failed,
     )
+
+    # Organize markdown files by sender
+    logger.info("Organizing markdown notes by sender...")
+    org_stats = organize_mdnotes_files(args.md_dir, args.raw_dir)
+    logger.info(
+        "Markdown organization complete: %d senders created, %d files moved.",
+        org_stats["senders_created"],
+        org_stats["files_moved"],
+    )
+
+    # Log conversion statistics
+    conv_stats = tracker.get_conversion_stats()
+    logger.info(
+        "Conversion tracking updated: %d total conversions, last updated: %s",
+        conv_stats["total_conversions"],
+        conv_stats["last_updated"],
+    )
+
     return 1 if failed else 0
 
 

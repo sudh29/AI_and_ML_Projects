@@ -1,5 +1,7 @@
 target_emails = [
-    "systemdesignone@substack.com"
+    "systemdesignone@substack.com",
+    "sandeepswadia@mail.beehiiv.com",
+    "hi@sandeepswadia.com>"
 ]
 max_emails_per_run = 5
 gemini_model = "gemini-2.5-flash"

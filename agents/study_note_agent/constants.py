@@ -19,6 +19,7 @@ SKILLS_DIR = _PROJECT_ROOT / "skills"
 DEFAULT_SKILL = "default.md"
 RAWTEXT_DIR = _PROJECT_ROOT / "rawtext"
 MDNOTES_DIR = _PROJECT_ROOT / "mdnotes"
+CONVERSION_TRACKER_FILE = _PROJECT_ROOT / "config" / "conversion_tracker.json"
 
 
 # ──────────────────────────────────────────────
