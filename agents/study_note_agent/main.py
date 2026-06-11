@@ -160,6 +160,10 @@ def _handle_raw_to_md(args: argparse.Namespace) -> int:
         logger.info("No raw text files needed markdown generation.")
         return 0
 
+    if args.limit is not None:
+        pending = pending[: args.limit]
+        logger.info("Limiting markdown generation to %d raw text file(s).", args.limit)
+
     llm = LLMService()
     written = 0
     failed = 0
@@ -332,6 +336,12 @@ def _build_parser() -> argparse.ArgumentParser:
         "--overwrite",
         action="store_true",
         help="Overwrite existing markdown files.",
+    )
+    raw_to_md.add_argument(
+        "--limit",
+        type=_positive_int,
+        default=None,
+        help="Maximum number of raw text files to convert. Defaults to all eligible files.",
     )
     raw_to_md.set_defaults(func=_handle_raw_to_md)
 

@@ -186,6 +186,35 @@ def test_raw_to_md_skips_existing_unless_overwrite(tmp_path):
     assert "new notes" in md_path.read_text(encoding="utf-8")
 
 
+def test_raw_to_md_limit_processes_only_requested_number(tmp_path):
+    raw_dir = tmp_path / "rawtext"
+    md_dir = tmp_path / "mdnotes"
+    raw_dir.mkdir()
+    for name in ("one", "two", "three"):
+        (raw_dir / f"{name}.txt").write_text(f"{name} body", encoding="utf-8")
+
+    with patch("services.llm_service.LLMService") as mock_llm_cls:
+        llm = mock_llm_cls.return_value
+        llm.generate_notes.side_effect = ["one notes", "two notes"]
+        llm.proofread_notes.side_effect = [None, None]
+
+        code = main.main(
+            [
+                "raw-to-md",
+                "--raw-dir",
+                str(raw_dir),
+                "--md-dir",
+                str(md_dir),
+                "--limit",
+                "2",
+            ]
+        )
+
+    assert code == 0
+    assert sorted(path.name for path in md_dir.glob("*.md")) == ["one.md", "three.md"]
+    assert llm.generate_notes.call_count == 2
+
+
 def test_youtube_command_saves_transcript_to_rawtext(tmp_path):
     url = "https://www.youtube.com/watch?v=abc123"
     with patch("services.youtube_service.get_transcript") as mock_get_transcript:
