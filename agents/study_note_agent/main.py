@@ -198,8 +198,8 @@ def _handle_raw_to_md(args: argparse.Namespace) -> int:
     skipped_converted = 0
     skipped_failed = 0
     for raw_path in raw_files:
-        # Check if already converted (from metadata)
-        if is_markdown_already_created(raw_path):
+        # Check if already converted (from metadata or tracker)
+        if is_markdown_already_created(raw_path) or tracker.is_converted(raw_path.stem):
             skipped_converted += 1
             logger.debug("Skipped already converted: %s", raw_path.name)
             continue
