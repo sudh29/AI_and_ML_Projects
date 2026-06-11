@@ -1,8 +1,9 @@
 """Tests for services.notes_service sanitization."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
 from services.notes_service import NotesService
+
 
 class TestNotesSanitization:
     @patch("services.notes_service.constants.MS_CLIENT_ID", "fake_client_id")

@@ -1,9 +1,9 @@
 """Tests for agent.py workflow coordination."""
 
-import pytest
 from unittest.mock import MagicMock, patch
+
 from agent import CircuitBreaker, run
-import constants
+
 
 class TestCircuitBreaker:
     def test_opens_after_threshold(self):

@@ -34,7 +34,7 @@ class LLMService:
             )
 
     @retry(
-        stop=stop_after_attempt(4), wait=wait_exponential(multiplier=1, min=2, max=10)
+        stop=stop_after_attempt(6), wait=wait_exponential(multiplier=2, min=4, max=65)
     )
     def _call_gemini(
         self, system_instruction: str, contents: str, temperature: float
@@ -91,8 +91,8 @@ class LLMService:
         """
 
         @retry(
-            stop=stop_after_attempt(3),
-            wait=wait_exponential(multiplier=1, min=1, max=5),
+            stop=stop_after_attempt(6),
+            wait=wait_exponential(multiplier=2, min=4, max=65),
         )
         def _fetch_skill():
             with self._lock:

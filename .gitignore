@@ -1,3 +1,8 @@
+agents/study_note_agent/config/*
+agents/study_note_agent/rawtext/*
+agents/study_note_agent/mdnotes/*
+agents/study_note_agent/.env
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]

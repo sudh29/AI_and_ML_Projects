@@ -41,6 +41,14 @@ This limits wasted API quota on repeated failures while preserving successful wo
 - OneNote saves run in parallel; token acquisition uses a single lock so interactive Microsoft login cannot run from multiple threads at once
 - Deduplication file updates happen on the main thread after workers finish
 
+### File Organization
+The agent automatically organizes your email notes by sender to make them easier to navigate:
+- **After `fetch-raw`:** Raw text files are organized into sender-based subdirectories (e.g., `rawtext/Neo Kim/`, `rawtext/Sandeep Swadia/`)
+- **After `raw-to-md`:** Generated markdown notes are organized into matching sender-based subdirectories under `mdnotes/`
+- **Conversion tracking:** A JSON file (`config/conversion_tracker.json`) tracks which raw files have been converted to markdown, including timestamps and file paths for complete audit trails
+
+This structure makes it easy to find all notes from a specific sender and prevents accidentally re-processing files.
+
 ---
 
 ## 🛠 Setup Guide
@@ -149,16 +157,26 @@ Configuration of target emails lives in `config/config.json`. Edit the `target_e
 }
 ```
 
-Run the agent via the terminal:
+Run the separate commands via the terminal:
 
 ```bash
-uv run main.py --limit 5
-uv run main.py --whatsapp
+uv run main.py fetch-raw
+uv run main.py raw-to-md
+uv run main.py raw-to-md --limit 2
+uv run main.py whatsapp --message "Study Note Agent test"
+uv run main.py youtube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+uv run main.py telegram
+uv run main.py full-workflow --limit 5 --whatsapp
 
 ```
 
 ### Arguments:
-- `--limit`: Maximum number of emails to process in one execution (default: `5`, or configurable via `MAX_EMAILS_PER_RUN` in `constants.py`).
+- `fetch-raw`: Fetches all matching unread Gmail messages by default, saves local `.txt` files plus `.json` metadata under `rawtext/`, then marks only the verified saved Gmail message IDs as read. **Automatically organizes rawtext files into sender-based subdirectories** (e.g., `rawtext/Neo Kim/`, `rawtext/Sandeep Swadia/`). Logs show which email is currently being processed with sender name and subject. Use `--limit 5` to cap a run or `--no-mark-read` to leave messages unread.
+- `raw-to-md`: Converts files from `rawtext/` into local markdown notes under `mdnotes/`. **Automatically searches all sender subdirectories** and organizes markdown files into matching sender-based subdirectories. **Tracks all conversions** in `config/conversion_tracker.json` for auditing and deduplication. Logs show progress of each file being converted including sender name and title. By default it processes all eligible files; use `--limit 2` for a smaller batch or `--overwrite` to regenerate existing notes.
+- `whatsapp`: Sends a custom message through CallMeBot using the configured WhatsApp credentials.
+- `youtube`: Saves a YouTube transcript into `rawtext/` so it can be converted later with `raw-to-md`.
+- `telegram`: Placeholder command; Telegram sending is not implemented yet.
+- `full-workflow`: Runs the original Gmail → LLM → OneNote workflow. Use `--limit` and optional `--whatsapp`.
 
 ---
 

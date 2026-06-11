@@ -161,6 +161,16 @@ def process_email(
 # ------------------------------------------------------------------
 # Main workflow
 # ------------------------------------------------------------------
+def build_gmail_search_query() -> str:
+    """Build the Gmail search query from configured target senders."""
+    if constants.TARGET_EMAILS:
+        senders_query = " OR ".join(
+            [f"from:{email}" for email in constants.TARGET_EMAILS]
+        )
+        return f"is:unread AND ({senders_query})"
+    return "is:unread label:learning"
+
+
 def run(
     *,
     limit: int = constants.MAX_EMAILS_PER_RUN,
@@ -180,15 +190,7 @@ def run(
         len(processed_emails),
     )
 
-    # Build query from constants
-    if constants.TARGET_EMAILS:
-        senders_query = " OR ".join(
-            [f"from:{email}" for email in constants.TARGET_EMAILS]
-        )
-        search_query = f"is:unread AND ({senders_query})"
-    else:
-        search_query = "is:unread label:learning"
-
+    search_query = build_gmail_search_query()
     logger.info("Starting agent with query: '%s'", search_query)
 
     # Fetch emails
