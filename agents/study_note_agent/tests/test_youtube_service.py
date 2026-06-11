@@ -2,7 +2,14 @@
 
 from unittest.mock import patch
 
-from services.youtube_service import get_transcript
+from services.youtube_service import extract_video_id, get_transcript
+
+
+def test_extract_video_id() -> None:
+    assert extract_video_id("https://www.youtube.com/watch?v=abc123") == "abc123"
+    assert extract_video_id("https://youtu.be/xyz789") == "xyz789"
+    assert extract_video_id("https://www.youtube.com/watch?t=10&v=def456&list=PLx") == "def456"
+    assert extract_video_id("dQw4w9WgXcQ") == "dQw4w9WgXcQ"
 
 
 class TestGetTranscript:

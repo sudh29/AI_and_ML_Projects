@@ -8,24 +8,25 @@ from youtube_transcript_api import (
 from youtube_transcript_api.formatters import TextFormatter
 
 
-def get_transcript(video_url: str, language: str = "en") -> str:
-    """
-    Get transcript from a YouTube video URL or ID.
-    """
-    # Extract video ID from URL if full URL is passed
+def extract_video_id(video_url: str) -> str:
+    """Extract a YouTube video ID from a URL, or return the input as a bare ID."""
     parsed = urlparse(video_url)
     if parsed.hostname in ("youtu.be", "www.youtu.be"):
-        video_id = parsed.path.lstrip("/")
-    elif (
+        return parsed.path.lstrip("/")
+    if (
         parsed.hostname in ("youtube.com", "www.youtube.com")
         and parsed.path == "/watch"
     ):
         query = parse_qs(parsed.query)
-        video_id = query.get("v", [None])[0]
-        if not video_id:
-            video_id = video_url  # fallback
-    else:
-        video_id = video_url  # assume it's already an ID
+        return query.get("v", [video_url])[0] or video_url
+    return video_url
+
+
+def get_transcript(video_url: str, language: str = "en") -> str:
+    """
+    Get transcript from a YouTube video URL or ID.
+    """
+    video_id = extract_video_id(video_url)
 
     try:
         transcript = YouTubeTranscriptApi.get_transcript(video_id, languages=[language])

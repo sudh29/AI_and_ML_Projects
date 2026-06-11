@@ -149,16 +149,25 @@ Configuration of target emails lives in `config/config.json`. Edit the `target_e
 }
 ```
 
-Run the agent via the terminal:
+Run the separate commands via the terminal:
 
 ```bash
-uv run main.py --limit 5
-uv run main.py --whatsapp
+uv run main.py fetch-raw --limit 5
+uv run main.py raw-to-md
+uv run main.py whatsapp --message "Study Note Agent test"
+uv run main.py youtube "https://www.youtube.com/watch?v=dQw4w9WgXcQ"
+uv run main.py telegram
+uv run main.py full-workflow --limit 5 --whatsapp
 
 ```
 
 ### Arguments:
-- `--limit`: Maximum number of emails to process in one execution (default: `5`, or configurable via `MAX_EMAILS_PER_RUN` in `constants.py`).
+- `fetch-raw`: Fetches matching Gmail messages and saves local `.txt` files plus `.json` metadata under `rawtext/`. It does not mark emails as read.
+- `raw-to-md`: Converts files from `rawtext/` into local markdown notes under `mdnotes/`. Use `--overwrite` to regenerate existing notes.
+- `whatsapp`: Sends a custom message through CallMeBot using the configured WhatsApp credentials.
+- `youtube`: Saves a YouTube transcript into `rawtext/` so it can be converted later with `raw-to-md`.
+- `telegram`: Placeholder command; Telegram sending is not implemented yet.
+- `full-workflow`: Runs the original Gmail → LLM → OneNote workflow. Use `--limit` and optional `--whatsapp`.
 
 ---
 
